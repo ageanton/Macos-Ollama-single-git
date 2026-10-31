@@ -1,0 +1,2477 @@
+name: Build Ollama Studio macOS App & DMG
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Generate Sources & Compile macOS DMG
+    runs-on: macos-14
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Generate Complete Swift Project Structure
+        run: |
+          mkdir -p Sources/OllamaStudio/App
+          mkdir -p Sources/OllamaStudio/Models
+          mkdir -p Sources/OllamaStudio/Services
+          mkdir -p Sources/OllamaStudio/Theme
+          mkdir -p Sources/OllamaStudio/Views
+
+          cat << 'EOF' > Package.swift
+          // swift-tools-version: 5.10
+          import PackageDescription
+
+          let package = Package(
+              name: "OllamaStudio",
+              platforms: [.macOS(.v14)],
+              products: [
+                  .executable(name: "OllamaStudio", targets: ["OllamaStudio"])
+              ],
+              targets: [
+                  .executableTarget(
+                      name: "OllamaStudio",
+                      path: "Sources/OllamaStudio",
+                      linkerSettings: [
+                          .linkedFramework("SwiftUI"),
+                          .linkedFramework("AppKit"),
+                          .linkedFramework("CryptoKit"),
+                          .linkedFramework("Security"),
+                          .linkedFramework("UniformTypeIdentifiers"),
+                          .linkedFramework("PDFKit")
+                      ]
+                  )
+              ]
+          )
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/Theme/DesignSystem.swift
+          import SwiftUI
+          import AppKit
+
+          public enum StudioThemeID: String, CaseIterable, Codable, Identifiable {
+              case sageAndPaper = "sage_and_paper"
+              case warmStone = "warm_stone"
+              case nordicSlate = "nordic_slate"
+              case macOSSequoia = "macos_sequoia"
+              case editorialAmber = "editorial_amber"
+              case britishRacingGreen = "british_racing_green"
+              case carbonAndMoss = "carbon_and_moss"
+
+              public var id: String { rawValue }
+
+              public var displayName: String {
+                  switch self {
+                  case .sageAndPaper: return "Sage & Paper (Default)"
+                  case .warmStone: return "Warm Stone"
+                  case .nordicSlate: return "Nordic Slate"
+                  case .macOSSequoia: return "macOS Sequoia"
+                  case .editorialAmber: return "Editorial Paper & Amber"
+                  case .britishRacingGreen: return "British Racing Green"
+                  case .carbonAndMoss: return "Carbon & Moss"
+                  }
+              }
+
+              public var subtitle: String {
+                  switch self {
+                  case .sageAndPaper:
+                      return "Soft botanical sage canvas with a crisp white inset card and deep forest accent."
+                  case .warmStone:
+                      return "Travertine linen frame with warm alabaster paper and espresso-terracotta cues."
+                  case .nordicSlate:
+                      return "Cool mist-blue architectural frame with pure paper and deep fjord blue highlights."
+                  case .macOSSequoia:
+                      return "Native Apple Pro neutral alabaster canvas paired with classic system blue."
+                  case .editorialAmber:
+                      return "Warm print parchment surface with high-contrast ink and burnt amber accents."
+                  case .britishRacingGreen:
+                      return "Deep hunter green studio tint with warm ivory cards and heritage brass status cues."
+                  case .carbonAndMoss:
+                      return "Restrained low-glare obsidian dark workspace with muted sage-emerald accents."
+                  }
+              }
+          }
+
+          public enum AppearancePreference: String, CaseIterable, Codable, Identifiable {
+              case system = "system"
+              case light = "light"
+              case dark = "dark"
+              public var id: String { rawValue }
+              public var label: String {
+                  switch self {
+                  case .system: return "Match System"
+                  case .light: return "Light"
+                  case .dark: return "Dark"
+                  }
+              }
+          }
+
+          public enum StudioFontFamily: String, CaseIterable, Codable, Identifiable {
+              case sfPro = "sf_pro"
+              case inter = "inter"
+              case plusJakartaSans = "plus_jakarta"
+              case openSans = "open_sans"
+              case dmSans = "dm_sans"
+
+              public var id: String { rawValue }
+              public var displayName: String {
+                  switch self {
+                  case .sfPro: return "San Francisco (macOS Native)"
+                  case .inter: return "Inter"
+                  case .plusJakartaSans: return "Plus Jakarta Sans"
+                  case .openSans: return "Open Sans"
+                  case .dmSans: return "DM Sans"
+                  }
+              }
+              public var postScriptCandidates: [String] {
+                  switch self {
+                  case .sfPro: return []
+                  case .inter: return ["Inter-Regular", "Inter"]
+                  case .plusJakartaSans: return ["PlusJakartaSans-Regular", "Plus Jakarta Sans"]
+                  case .openSans: return ["OpenSans-Regular", "Open Sans"]
+                  case .dmSans: return ["DMSans-Regular", "DM Sans"]
+                  }
+              }
+          }
+
+          public struct StudioPalette {
+              public let windowCanvas: Color
+              public let cardSurface: Color
+              public let elevatedSurface: Color
+              public let subtleSurface: Color
+              public let primaryText: Color
+              public let secondaryText: Color
+              public let mutedText: Color
+              public let accent: Color
+              public let accentSoft: Color
+              public let hairlineBorder: Color
+              public let cardRing: Color
+              public let statusHealthy: Color
+              public let statusWarning: Color
+              public let statusDanger: Color
+          }
+
+          extension Color {
+              public init(hex: UInt32, alpha: Double = 1.0) {
+                  let r = Double((hex >> 16) & 0xFF) / 255.0
+                  let g = Double((hex >> 8) & 0xFF) / 255.0
+                  let b = Double(hex & 0xFF) / 255.0
+                  self.init(.sRGB, red: r, green: g, blue: b, opacity: alpha)
+              }
+          }
+
+          public enum StudioMetrics {
+              public static let cardOuterInset: CGFloat = 8.0
+              public static let cardCornerRadius: CGFloat = 12.0
+              public static let containerCornerRadius: CGFloat = 8.0
+              public static let controlCornerRadius: CGFloat = 6.0
+              public static let badgeCornerRadius: CGFloat = 4.0
+              public static let sidebarWidth: CGFloat = 248.0
+              public static let inspectorWidth: CGFloat = 340.0
+              public static let readingColumnMaxWidth: CGFloat = 720.0
+              public static let trafficLightClearanceHeight: CGFloat = 38.0
+          }
+
+          @MainActor
+          public final class ThemeManager: ObservableObject {
+              @Published public var selectedTheme: StudioThemeID {
+                  didSet { UserDefaults.standard.set(selectedTheme.rawValue, forKey: "studio.theme") }
+              }
+              @Published public var appearancePreference: AppearancePreference {
+                  didSet { UserDefaults.standard.set(appearancePreference.rawValue, forKey: "studio.appearance") }
+              }
+              @Published public var selectedFont: StudioFontFamily {
+                  didSet { UserDefaults.standard.set(selectedFont.rawValue, forKey: "studio.font") }
+              }
+              @Published public var useComfortableTextSize: Bool {
+                  didSet { UserDefaults.standard.set(useComfortableTextSize, forKey: "studio.comfortableText") }
+              }
+
+              public init() {
+                  let savedTheme = UserDefaults.standard.string(forKey: "studio.theme") ?? StudioThemeID.sageAndPaper.rawValue
+                  self.selectedTheme = StudioThemeID(rawValue: savedTheme) ?? .sageAndPaper
+                  let savedAppearance = UserDefaults.standard.string(forKey: "studio.appearance") ?? AppearancePreference.light.rawValue
+                  self.appearancePreference = AppearancePreference(rawValue: savedAppearance) ?? .light
+                  let savedFont = UserDefaults.standard.string(forKey: "studio.font") ?? StudioFontFamily.sfPro.rawValue
+                  self.selectedFont = StudioFontFamily(rawValue: savedFont) ?? .sfPro
+                  if UserDefaults.standard.object(forKey: "studio.comfortableText") == nil {
+                      self.useComfortableTextSize = true
+                  } else {
+                      self.useComfortableTextSize = UserDefaults.standard.bool(forKey: "studio.comfortableText")
+                  }
+              }
+
+              public func palette(for colorScheme: ColorScheme) -> StudioPalette {
+                  let isDark: Bool = {
+                      if selectedTheme == .carbonAndMoss { return true }
+                      switch appearancePreference {
+                      case .light: return false
+                      case .dark: return true
+                      case .system: return colorScheme == .dark
+                      }
+                  }()
+
+                  switch (selectedTheme, isDark) {
+                  case (.sageAndPaper, false):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0xEBF0EC), cardSurface: Color(hex: 0xFFFFFF),
+                          elevatedSurface: Color(hex: 0xFAFBF9), subtleSurface: Color(hex: 0xF2F5F3),
+                          primaryText: Color(hex: 0x18221D), secondaryText: Color(hex: 0x46544D),
+                          mutedText: Color(hex: 0x687870), accent: Color(hex: 0x2C5E43),
+                          accentSoft: Color(hex: 0x2C5E43, alpha: 0.11), hairlineBorder: Color(hex: 0xDCE3DE),
+                          cardRing: Color(hex: 0x18221D, alpha: 0.07), statusHealthy: Color(hex: 0x2C5E43),
+                          statusWarning: Color(hex: 0xB4691E), statusDanger: Color(hex: 0xB8332A)
+                      )
+                  case (.sageAndPaper, true), (.carbonAndMoss, _):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0x131614), cardSurface: Color(hex: 0x1B1F1C),
+                          elevatedSurface: Color(hex: 0x222724), subtleSurface: Color(hex: 0x252B27),
+                          primaryText: Color(hex: 0xEAEFEA), secondaryText: Color(hex: 0xA3B1A8),
+                          mutedText: Color(hex: 0x76857B), accent: Color(hex: 0x529471),
+                          accentSoft: Color(hex: 0x529471, alpha: 0.18), hairlineBorder: Color(hex: 0x2B312D),
+                          cardRing: Color(hex: 0xFFFFFF, alpha: 0.06), statusHealthy: Color(hex: 0x529471),
+                          statusWarning: Color(hex: 0xD99441), statusDanger: Color(hex: 0xE05A50)
+                      )
+                  case (.warmStone, false):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0xEFECE6), cardSurface: Color(hex: 0xFAF8F5),
+                          elevatedSurface: Color(hex: 0xFFFFFF), subtleSurface: Color(hex: 0xF3EFE8),
+                          primaryText: Color(hex: 0x211E1A), secondaryText: Color(hex: 0x575047),
+                          mutedText: Color(hex: 0x7A7167), accent: Color(hex: 0x7C4D3A),
+                          accentSoft: Color(hex: 0x7C4D3A, alpha: 0.11), hairlineBorder: Color(hex: 0xE2DDD5),
+                          cardRing: Color(hex: 0x211E1A, alpha: 0.07), statusHealthy: Color(hex: 0x3B6E4C),
+                          statusWarning: Color(hex: 0xB86B23), statusDanger: Color(hex: 0xB5382E)
+                      )
+                  case (.warmStone, true):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0x161412), cardSurface: Color(hex: 0x1E1B18),
+                          elevatedSurface: Color(hex: 0x26221F), subtleSurface: Color(hex: 0x2A2622),
+                          primaryText: Color(hex: 0xF0ECE6), secondaryText: Color(hex: 0xB0A69B),
+                          mutedText: Color(hex: 0x82786E), accent: Color(hex: 0xC48468),
+                          accentSoft: Color(hex: 0xC48468, alpha: 0.18), hairlineBorder: Color(hex: 0x302B27),
+                          cardRing: Color(hex: 0xFFFFFF, alpha: 0.06), statusHealthy: Color(hex: 0x5A996E),
+                          statusWarning: Color(hex: 0xD99148), statusDanger: Color(hex: 0xE06256)
+                      )
+                  case (.nordicSlate, false):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0xEAEFF5), cardSurface: Color(hex: 0xFFFFFF),
+                          elevatedSurface: Color(hex: 0xF8FAFC), subtleSurface: Color(hex: 0xF1F5F9),
+                          primaryText: Color(hex: 0x151D28), secondaryText: Color(hex: 0x455366),
+                          mutedText: Color(hex: 0x67768A), accent: Color(hex: 0x2B4C7E),
+                          accentSoft: Color(hex: 0x2B4C7E, alpha: 0.11), hairlineBorder: Color(hex: 0xDAE2EC),
+                          cardRing: Color(hex: 0x151D28, alpha: 0.07), statusHealthy: Color(hex: 0x2D6A4F),
+                          statusWarning: Color(hex: 0xB56A1E), statusDanger: Color(hex: 0xB9382E)
+                      )
+                  case (.nordicSlate, true):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0x11151C), cardSurface: Color(hex: 0x181D26),
+                          elevatedSurface: Color(hex: 0x1F2631), subtleSurface: Color(hex: 0x232B38),
+                          primaryText: Color(hex: 0xE9EEF5), secondaryText: Color(hex: 0x9FB0C4),
+                          mutedText: Color(hex: 0x708299), accent: Color(hex: 0x6692D6),
+                          accentSoft: Color(hex: 0x6692D6, alpha: 0.18), hairlineBorder: Color(hex: 0x28313E),
+                          cardRing: Color(hex: 0xFFFFFF, alpha: 0.06), statusHealthy: Color(hex: 0x52997A),
+                          statusWarning: Color(hex: 0xDB9446), statusDanger: Color(hex: 0xE05E53)
+                      )
+                  case (.macOSSequoia, false):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0xF0F1F4), cardSurface: Color(hex: 0xFFFFFF),
+                          elevatedSurface: Color(hex: 0xFAFAFC), subtleSurface: Color(hex: 0xF4F5F7),
+                          primaryText: Color(hex: 0x1A1B1E), secondaryText: Color(hex: 0x4F5259),
+                          mutedText: Color(hex: 0x727680), accent: Color(hex: 0x0066CC),
+                          accentSoft: Color(hex: 0x0066CC, alpha: 0.10), hairlineBorder: Color(hex: 0xE1E3E8),
+                          cardRing: Color(hex: 0x000000, alpha: 0.07), statusHealthy: Color(hex: 0x287D4E),
+                          statusWarning: Color(hex: 0xB86A1B), statusDanger: Color(hex: 0xC4332B)
+                      )
+                  case (.macOSSequoia, true):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0x141518), cardSurface: Color(hex: 0x1C1D21),
+                          elevatedSurface: Color(hex: 0x24262B), subtleSurface: Color(hex: 0x27292F),
+                          primaryText: Color(hex: 0xECEDF0), secondaryText: Color(hex: 0xA4A8B3),
+                          mutedText: Color(hex: 0x767A85), accent: Color(hex: 0x4796E6),
+                          accentSoft: Color(hex: 0x4796E6, alpha: 0.18), hairlineBorder: Color(hex: 0x2C2E35),
+                          cardRing: Color(hex: 0xFFFFFF, alpha: 0.06), statusHealthy: Color(hex: 0x4D9E6F),
+                          statusWarning: Color(hex: 0xD99243), statusDanger: Color(hex: 0xE05A52)
+                      )
+                  case (.editorialAmber, false):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0xF3EDE2), cardSurface: Color(hex: 0xFCF9F4),
+                          elevatedSurface: Color(hex: 0xFFFFFF), subtleSurface: Color(hex: 0xF5F0E6),
+                          primaryText: Color(hex: 0x1F1A16), secondaryText: Color(hex: 0x594E43),
+                          mutedText: Color(hex: 0x7D7063), accent: Color(hex: 0xB85318),
+                          accentSoft: Color(hex: 0xB85318, alpha: 0.11), hairlineBorder: Color(hex: 0xE3DBD0),
+                          cardRing: Color(hex: 0x1F1A16, alpha: 0.07), statusHealthy: Color(hex: 0x356947),
+                          statusWarning: Color(hex: 0xB85318), statusDanger: Color(hex: 0xB5332A)
+                      )
+                  case (.editorialAmber, true):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0x171310), cardSurface: Color(hex: 0x201B17),
+                          elevatedSurface: Color(hex: 0x28221D), subtleSurface: Color(hex: 0x2C2520),
+                          primaryText: Color(hex: 0xF2EAE1), secondaryText: Color(hex: 0xB5A698),
+                          mutedText: Color(hex: 0x85776A), accent: Color(hex: 0xDE7D43),
+                          accentSoft: Color(hex: 0xDE7D43, alpha: 0.18), hairlineBorder: Color(hex: 0x332B25),
+                          cardRing: Color(hex: 0xFFFFFF, alpha: 0.06), statusHealthy: Color(hex: 0x57996D),
+                          statusWarning: Color(hex: 0xDE7D43), statusDanger: Color(hex: 0xE05E53)
+                      )
+                  case (.britishRacingGreen, false):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0xE4ECE7), cardSurface: Color(hex: 0xFDFCFA),
+                          elevatedSurface: Color(hex: 0xFFFFFF), subtleSurface: Color(hex: 0xEFF4F1),
+                          primaryText: Color(hex: 0x121F18), secondaryText: Color(hex: 0x3F5247),
+                          mutedText: Color(hex: 0x63786B), accent: Color(hex: 0x154D34),
+                          accentSoft: Color(hex: 0x154D34, alpha: 0.11), hairlineBorder: Color(hex: 0xD6E0DA),
+                          cardRing: Color(hex: 0x121F18, alpha: 0.07), statusHealthy: Color(hex: 0x154D34),
+                          statusWarning: Color(hex: 0xA8681D), statusDanger: Color(hex: 0xB33329)
+                      )
+                  case (.britishRacingGreen, true):
+                      return StudioPalette(
+                          windowCanvas: Color(hex: 0x0E1612), cardSurface: Color(hex: 0x15201A),
+                          elevatedSurface: Color(hex: 0x1C2922), subtleSurface: Color(hex: 0x202F27),
+                          primaryText: Color(hex: 0xE8F0EC), secondaryText: Color(hex: 0x9EB3A7),
+                          mutedText: Color(hex: 0x6F8579), accent: Color(hex: 0x4C9A74),
+                          accentSoft: Color(hex: 0x4C9A74, alpha: 0.18), hairlineBorder: Color(hex: 0x24332B),
+                          cardRing: Color(hex: 0xFFFFFF, alpha: 0.06), statusHealthy: Color(hex: 0x4C9A74),
+                          statusWarning: Color(hex: 0xD69445), statusDanger: Color(hex: 0xE05B50)
+                      )
+                  }
+              }
+
+              public func captionFont(weight: Font.Weight = .regular) -> Font { resolvedFont(size: 11.5, weight: weight) }
+              public func bodyFont(weight: Font.Weight = .regular) -> Font { resolvedFont(size: 13.0, weight: weight) }
+              public func conversationFont(weight: Font.Weight = .regular) -> Font {
+                  resolvedFont(size: useComfortableTextSize ? 15.0 : 14.0, weight: weight)
+              }
+              public func titleFont(weight: Font.Weight = .semibold) -> Font { resolvedFont(size: 16.5, weight: weight) }
+              public func monoFont(size: CGFloat = 12.0, weight: Font.Weight = .regular) -> Font {
+                  .system(size: size, weight: weight, design: .monospaced).monospacedDigit()
+              }
+
+              private func resolvedFont(size: CGFloat, weight: Font.Weight) -> Font {
+                  if selectedFont == .sfPro {
+                      return .system(size: size, weight: weight, design: .default).monospacedDigit()
+                  }
+                  for candidate in selectedFont.postScriptCandidates {
+                      if NSFont(name: candidate, size: size) != nil {
+                          return .custom(candidate, size: size).weight(weight).monospacedDigit()
+                      }
+                  }
+                  return .system(size: size, weight: weight, design: .default).monospacedDigit()
+              }
+          }
+
+          public enum StudioIconName: String, CaseIterable {
+              case chat = "bubble.left"
+              case models = "cpu"
+              case builder = "slider.horizontal.below.rectangle"
+              case server = "server.rack"
+              case dials = "slider.horizontal.3"
+              case settings = "gearshape"
+              case plus = "plus"
+              case search = "magnifyingglass"
+              case trash = "trash"
+              case restore = "arrow.uturn.backward"
+              case send = "arrow.up"
+              case stop = "stop.fill"
+              case paperclip = "paperclip"
+              case photo = "photo"
+              case doc = "doc.text"
+              case copy = "doc.on.doc"
+              case check = "checkmark"
+              case chevronRight = "chevron.right"
+              case chevronDown = "chevron.down"
+              case info = "info.circle"
+              case warning = "exclamationmark.triangle"
+              case spark = "sparkles"
+              case eject = "eject"
+              case download = "arrow.down.circle"
+              case refresh = "arrow.clockwise"
+              case lock = "lock.shield"
+              case edit = "pencil"
+              case sliders = "dial.medium"
+              case eye = "eye"
+              case close = "xmark"
+          }
+
+          public struct StudioIcon: View {
+              public let name: StudioIconName
+              public var size: CGFloat = 14.0
+              public var color: Color? = nil
+
+              public init(_ name: StudioIconName, size: CGFloat = 14.0, color: Color? = nil) {
+                  self.name = name
+                  self.size = size
+                  self.color = color
+              }
+
+              public var body: some View {
+                  Image(systemName: name.rawValue)
+                      .font(.system(size: size, weight: .medium))
+                      .foregroundStyle(color ?? .primary)
+                      .frame(width: size + 4, height: size + 4, alignment: .center)
+              }
+          }
+
+          public struct StudioPillBadge: View {
+              public let text: String
+              public let palette: StudioPalette
+              public var isAccent: Bool = false
+
+              public init(_ text: String, palette: StudioPalette, isAccent: Bool = false) {
+                  self.text = text
+                  self.palette = palette
+                  self.isAccent = isAccent
+              }
+
+              public var body: some View {
+                  Text(text)
+                      .font(.system(size: 11.5, weight: .medium).monospacedDigit())
+                      .foregroundStyle(isAccent ? palette.accent : palette.secondaryText)
+                      .padding(.horizontal, 8)
+                      .padding(.vertical, 3.5)
+                      .background(
+                          RoundedRectangle(cornerRadius: StudioMetrics.badgeCornerRadius, style: .continuous)
+                              .fill(isAccent ? palette.accentSoft : palette.subtleSurface)
+                      )
+                      .overlay(
+                          RoundedRectangle(cornerRadius: StudioMetrics.badgeCornerRadius, style: .continuous)
+                              .strokeBorder(isAccent ? palette.accent.opacity(0.25) : palette.hairlineBorder, lineWidth: 1)
+                      )
+              }
+          }
+
+          public struct PlainEnglishTooltipButton: View {
+              public let title: String
+              public let technicalKey: String
+              public let explanation: String
+              public let recommendation: String?
+              public let palette: StudioPalette
+              @State private var isPresented: Bool = false
+
+              public init(title: String, technicalKey: String, explanation: String, recommendation: String? = nil, palette: StudioPalette) {
+                  self.title = title
+                  self.technicalKey = technicalKey
+                  self.explanation = explanation
+                  self.recommendation = recommendation
+                  self.palette = palette
+              }
+
+              public var body: some View {
+                  Button { isPresented.toggle() } label: {
+                      StudioIcon(.info, size: 12, color: palette.mutedText)
+                  }
+                  .buttonStyle(.plain)
+                  .help(explanation)
+                  .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+                      VStack(alignment: .leading, spacing: 8) {
+                          HStack {
+                              Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(palette.primaryText)
+                              Spacer()
+                              Text(technicalKey)
+                                  .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                  .foregroundStyle(palette.mutedText)
+                          }
+                          Text(explanation).font(.system(size: 12.5)).foregroundStyle(palette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                          if let rec = recommendation, !rec.isEmpty {
+                              Divider()
+                              Text(rec).font(.system(size: 11.5, weight: .medium)).foregroundStyle(palette.accent).fixedSize(horizontal: false, vertical: true)
+                          }
+                      }
+                      .padding(14)
+                      .frame(width: 310)
+                      .background(palette.elevatedSurface)
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/Models/ModelDials.swift
+          import Foundation
+
+          public enum ThinkingMode: String, CaseIterable, Codable, Identifiable {
+              case modelDefault = "default"
+              case enabled = "true"
+              case disabled = "false"
+              case effortLow = "low"
+              case effortMedium = "medium"
+              case effortHigh = "high"
+
+              public var id: String { rawValue }
+              public var label: String {
+                  switch self {
+                  case .modelDefault: return "Auto (Model Default)"
+                  case .enabled: return "Thinking On"
+                  case .disabled: return "Thinking Off (Direct Answer)"
+                  case .effortLow: return "Low Effort"
+                  case .effortMedium: return "Medium Effort"
+                  case .effortHigh: return "Deep Effort (High)"
+                  }
+              }
+              public var plainEnglishDescription: String {
+                  switch self {
+                  case .modelDefault: return "Lets the model decide whether to show a reasoning chain."
+                  case .enabled: return "Forces reasoning models to think step-by-step inside a collapsible panel."
+                  case .disabled: return "Skips internal monologue and outputs the final answer immediately."
+                  case .effortLow: return "Brief internal reasoning check for straightforward questions."
+                  case .effortMedium: return "Balanced reasoning depth for everyday logic and coding."
+                  case .effortHigh: return "Maximum multi-step deliberation for complex math and architecture."
+                  }
+              }
+              public var apiJSONValue: Any? {
+                  switch self {
+                  case .modelDefault: return nil
+                  case .enabled: return true
+                  case .disabled: return false
+                  case .effortLow: return "low"
+                  case .effortMedium: return "medium"
+                  case .effortHigh: return "high"
+                  }
+              }
+          }
+
+          public enum ResponseFormatMode: String, CaseIterable, Codable, Identifiable {
+              case prose = "prose"
+              case jsonObject = "json"
+              case jsonSchema = "schema"
+              public var id: String { rawValue }
+              public var label: String {
+                  switch self {
+                  case .prose: return "Natural Prose & Markdown"
+                  case .jsonObject: return "Strict JSON Mode"
+                  case .jsonSchema: return "Custom JSON Schema"
+                  }
+              }
+          }
+
+          public enum KeepAlivePreset: String, CaseIterable, Codable, Identifiable {
+              case serverDefault = "default"
+              case unloadImmediately = "0"
+              case fiveMinutes = "5m"
+              case fifteenMinutes = "15m"
+              case oneHour = "1h"
+              case stayLoadedForever = "-1"
+
+              public var id: String { rawValue }
+              public var label: String {
+                  switch self {
+                  case .serverDefault: return "Server Default (5 min)"
+                  case .unloadImmediately: return "Unload Immediately After Reply (0s)"
+                  case .fiveMinutes: return "Keep in RAM for 5 Minutes"
+                  case .fifteenMinutes: return "Keep in RAM for 15 Minutes"
+                  case .oneHour: return "Keep in RAM for 1 Hour"
+                  case .stayLoadedForever: return "Pin in RAM Indefinitely"
+                  }
+              }
+              public var apiValue: Any? {
+                  switch self {
+                  case .serverDefault: return nil
+                  case .unloadImmediately: return 0
+                  case .stayLoadedForever: return -1
+                  default: return rawValue
+                  }
+              }
+          }
+
+          public struct ModelDials: Codable, Equatable, Hashable {
+              public var temperature: Double = 0.7
+              public var topK: Int = 40
+              public var topP: Double = 0.9
+              public var minP: Double = 0.0
+              public var typicalP: Double = 1.0
+              public var tfsZ: Double = 1.0
+              public var repeatLastN: Int = 64
+              public var repeatPenalty: Double = 1.1
+              public var presencePenalty: Double = 0.0
+              public var frequencyPenalty: Double = 0.0
+              public var penalizeNewline: Bool = true
+              public var mirostat: Int = 0
+              public var mirostatTau: Double = 5.0
+              public var mirostatEta: Double = 0.1
+              public var numCtx: Int = 8192
+              public var numPredict: Int = -1
+              public var numKeep: Int = 4
+              public var numBatch: Int = 512
+              public var numGpu: Int = -1
+              public var mainGpu: Int = 0
+              public var numThread: Int = 0
+              public var useMmap: Bool = true
+              public var useMlock: Bool = false
+              public var lowVram: Bool = false
+              public var numa: Bool = false
+              public var vocabOnly: Bool = false
+              public var seed: Int = -1
+              public var stopSequences: [String] = []
+              public var systemPrompt: String = ""
+              public var customTemplateOverride: String = ""
+              public var thinkingMode: ThinkingMode = .modelDefault
+              public var formatMode: ResponseFormatMode = .prose
+              public var customJSONSchema: String = "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"summary\": { \"type\": \"string\" }\n  }\n}"
+              public var keepAlive: KeepAlivePreset = .serverDefault
+              public var statelessNoHistory: Bool = false
+              public var verboseMetrics: Bool = true
+              public var softWordWrap: Bool = true
+
+              public init() {}
+
+              public func toOllamaOptionsDictionary() -> [String: Any] {
+                  var opts: [String: Any] = [
+                      "temperature": round(temperature * 1000) / 1000,
+                      "top_k": topK,
+                      "top_p": round(topP * 1000) / 1000,
+                      "min_p": round(minP * 1000) / 1000,
+                      "typical_p": round(typicalP * 1000) / 1000,
+                      "tfs_z": round(tfsZ * 1000) / 1000,
+                      "repeat_last_n": repeatLastN,
+                      "repeat_penalty": round(repeatPenalty * 1000) / 1000,
+                      "presence_penalty": round(presencePenalty * 1000) / 1000,
+                      "frequency_penalty": round(frequencyPenalty * 1000) / 1000,
+                      "penalize_newline": penalizeNewline,
+                      "mirostat": mirostat,
+                      "mirostat_tau": round(mirostatTau * 100) / 100,
+                      "mirostat_eta": round(mirostatEta * 1000) / 1000,
+                      "num_ctx": numCtx,
+                      "num_predict": numPredict,
+                      "num_keep": numKeep,
+                      "num_batch": numBatch,
+                      "use_mmap": useMmap,
+                      "use_mlock": useMlock,
+                      "low_vram": lowVram,
+                      "numa": numa,
+                      "vocab_only": vocabOnly
+                  ]
+                  if numGpu >= 0 { opts["num_gpu"] = numGpu }
+                  if mainGpu > 0 { opts["main_gpu"] = mainGpu }
+                  if numThread > 0 { opts["num_thread"] = numThread }
+                  if seed >= 0 { opts["seed"] = seed }
+                  let cleanedStops = stopSequences.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                  if !cleanedStops.isEmpty { opts["stop"] = cleanedStops }
+                  return opts
+              }
+
+              public func toModelfileParametersMap() -> [String: Any] {
+                  var params: [String: Any] = [
+                      "temperature": round(temperature * 100) / 100,
+                      "top_k": topK,
+                      "top_p": round(topP * 100) / 100,
+                      "min_p": round(minP * 100) / 100,
+                      "repeat_last_n": repeatLastN,
+                      "repeat_penalty": round(repeatPenalty * 100) / 100,
+                      "num_ctx": numCtx
+                  ]
+                  if seed >= 0 { params["seed"] = seed }
+                  return params
+              }
+
+              public struct MemoryEstimate: Equatable {
+                  public let modelWeightsGB: Double
+                  public let kvCacheGB: Double
+                  public let computeOverheadGB: Double
+                  public var totalEstimatedGB: Double { modelWeightsGB + kvCacheGB + computeOverheadGB }
+                  public let approximatePagesOfText: Int
+                  public let warningLevel: WarningLevel
+                  public let plainEnglishSummary: String
+                  public let actionableAdvice: String?
+                  public enum WarningLevel: Equatable { case optimal, moderate, criticalOverflow }
+              }
+
+              public func estimateMemoryFootprint(
+                  modelSizeBytes: Int64,
+                  kvCacheType: KVCacheQuantizationType,
+                  systemTotalRAMGB: Double,
+                  systemAvailableRAMGB: Double
+              ) -> MemoryEstimate {
+                  let weightsGB = max(0.4, Double(modelSizeBytes) / 1_073_741_824.0)
+                  let modelScaleFactor = max(0.5, min(4.0, weightsGB / 4.7))
+                  let kvBytesPerTokenF16: Double = 131_072.0 * modelScaleFactor
+                  let kvGB = (Double(numCtx) * kvBytesPerTokenF16 * kvCacheType.memoryMultiplier) / 1_073_741_824.0
+                  let batchOverheadGB = (Double(numBatch) / 512.0) * 0.35
+                  let totalGB = weightsGB + kvGB + batchOverheadGB
+                  let pages = max(1, Int((Double(numCtx) * 0.75) / 350.0))
+                  let safeCeilingGB = systemTotalRAMGB * 0.78
+
+                  if totalGB > systemTotalRAMGB * 0.92 {
+                      return MemoryEstimate(
+                          modelWeightsGB: weightsGB, kvCacheGB: kvGB, computeOverheadGB: batchOverheadGB,
+                          approximatePagesOfText: pages, warningLevel: .criticalOverflow,
+                          plainEnglishSummary: String(format: "Needs %.1f GB on a %.0f GB Mac — will force SSD swap and run slowly.", totalGB, systemTotalRAMGB),
+                          actionableAdvice: "Lower Conversation Memory (num_ctx) or switch KV Cache to q8_0 in Server Control."
+                      )
+                  } else if totalGB > safeCeilingGB {
+                      return MemoryEstimate(
+                          modelWeightsGB: weightsGB, kvCacheGB: kvGB, computeOverheadGB: batchOverheadGB,
+                          approximatePagesOfText: pages, warningLevel: .moderate,
+                          plainEnglishSummary: String(format: "Uses %.1f GB of Unified Memory (~%d pages). Close heavy apps for peak speed.", totalGB, pages),
+                          actionableAdvice: nil
+                      )
+                  } else {
+                      return MemoryEstimate(
+                          modelWeightsGB: weightsGB, kvCacheGB: kvGB, computeOverheadGB: batchOverheadGB,
+                          approximatePagesOfText: pages, warningLevel: .optimal,
+                          plainEnglishSummary: String(format: "Runs comfortably in Apple Silicon Metal (%.1f GB total for ~%d pages).", totalGB, pages),
+                          actionableAdvice: nil
+                      )
+                  }
+              }
+          }
+
+          public struct DialsPreset: Identifiable {
+              public let id: String
+              public let name: String
+              public let subtitle: String
+              public let apply: (inout ModelDials) -> Void
+
+              public static let allPresets: [DialsPreset] = [
+                  DialsPreset(id: "balanced", name: "Balanced Everyday", subtitle: "Natural tone, 8k context window.") { d in
+                      d.temperature = 0.7; d.topK = 40; d.topP = 0.9; d.minP = 0.05; d.repeatPenalty = 1.1; d.numCtx = 8192
+                  },
+                  DialsPreset(id: "coding", name: "Deterministic Coding & Math", subtitle: "Low randomness (0.15) & 16k memory.") { d in
+                      d.temperature = 0.15; d.topK = 20; d.topP = 0.85; d.minP = 0.05; d.repeatPenalty = 1.05; d.numCtx = 16384
+                  },
+                  DialsPreset(id: "creative", name: "Creative Writing", subtitle: "Higher variety with Min-P guardrails.") { d in
+                      d.temperature = 0.95; d.topK = 80; d.topP = 0.95; d.minP = 0.06; d.repeatPenalty = 1.15; d.numCtx = 8192
+                  },
+                  DialsPreset(id: "deep_doc", name: "Long Document Reader (32k)", subtitle: "Expands memory window to ~75 pages.") { d in
+                      d.temperature = 0.4; d.numCtx = 32768
+                  }
+              ]
+          }
+
+          public struct ParameterHelpCatalog {
+              public struct Entry {
+                  public let title: String
+                  public let key: String
+                  public let explanation: String
+                  public let recommendation: String
+              }
+              public static let entries: [String: Entry] = [
+                  "num_ctx": Entry(title: "Conversation Memory (Context Window)", key: "num_ctx", explanation: "How much of the current chat and attached files the model can remember at once.", recommendation: "8,192 for normal chats; 16,384–32,768 for documents."),
+                  "temperature": Entry(title: "Temperature (Creativity vs. Precision)", key: "temperature", explanation: "Controls how predictable or adventurous word choices are.", recommendation: "0.15 for coding; 0.7 for everyday chat; 0.9+ for creative writing."),
+                  "top_p": Entry(title: "Nucleus Sampling (Top-P)", key: "top_p", explanation: "Narrows word choices to the top percentage of cumulative probability.", recommendation: "0.90 for balanced answers."),
+                  "min_p": Entry(title: "Min Probability Cutoff (Min-P)", key: "min_p", explanation: "Scales cutoff relative to the top word's confidence, preventing nonsense at high temperatures.", recommendation: "0.05 to 0.10."),
+                  "top_k": Entry(title: "Vocabulary Pool Limit (Top-K)", key: "top_k", explanation: "Caps the number of candidate words considered at each step.", recommendation: "40 for general use; 20 for strict logic."),
+                  "repeat_penalty": Entry(title: "Repetition Penalty", key: "repeat_penalty", explanation: "Discourages repeating the same phrases.", recommendation: "1.10 is ideal.")
+              ]
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/Models/OllamaEntities.swift
+          import Foundation
+
+          public struct OllamaModelSummary: Codable, Identifiable, Equatable, Hashable {
+              public var id: String { name }
+              public let name: String
+              public let model: String?
+              public let modifiedAt: String?
+              public let size: Int64
+              public let digest: String
+              public let details: ModelDetails?
+
+              enum CodingKeys: String, CodingKey {
+                  case name, model
+                  case modifiedAt = "modified_at"
+                  case size, digest, details
+              }
+
+              public struct ModelDetails: Codable, Equatable, Hashable {
+                  public let parentModel: String?
+                  public let format: String?
+                  public let family: String?
+                  public let families: [String]?
+                  public let parameterSize: String?
+                  public let quantizationLevel: String?
+
+                  enum CodingKeys: String, CodingKey {
+                      case parentModel = "parent_model"
+                      case format, family, families
+                      case parameterSize = "parameter_size"
+                      case quantizationLevel = "quantization_level"
+                  }
+              }
+
+              public var formattedSize: String {
+                  let gb = Double(size) / 1_073_741_824.0
+                  return gb >= 1.0 ? String(format: "%.1f GB", gb) : String(format: "%.0f MB", Double(size) / 1_048_576.0)
+              }
+
+              public var isLikelyVisionModel: Bool {
+                  let lower = name.lowercased()
+                  let fam = (details?.families ?? []).joined(separator: " ").lowercased()
+                  return lower.contains("vision") || lower.contains("llava") || lower.contains("vl")
+                      || lower.contains("gemma3") || lower.contains("gemma4") || fam.contains("clip")
+              }
+
+              public var isLikelyReasoningModel: Bool {
+                  let lower = name.lowercased()
+                  return lower.contains("deepseek-r1") || lower.contains("qwq") || lower.contains("qwen3") || lower.contains("think")
+              }
+          }
+
+          public struct RunningModelProcess: Codable, Identifiable, Equatable {
+              public var id: String { name }
+              public let name: String
+              public let model: String?
+              public let size: Int64
+              public let sizeVram: Int64
+
+              enum CodingKeys: String, CodingKey {
+                  case name, model, size
+                  case sizeVram = "size_vram"
+              }
+
+              public var formattedVRAM: String {
+                  String(format: "%.1f GB in RAM", Double(max(size, sizeVram)) / 1_073_741_824.0)
+              }
+
+              public var metalOffloadPercentage: Int {
+                  guard size > 0 else { return 100 }
+                  return min(100, max(0, Int(round((Double(sizeVram) / Double(size)) * 100))))
+              }
+          }
+
+          public struct OllamaModelShowInfo: Codable, Equatable {
+              public let modelfile: String?
+              public let parameters: String?
+              public let template: String?
+              public let system: String?
+              public let license: String?
+              public let capabilities: [String]?
+          }
+
+          public struct ChatAttachment: Codable, Identifiable, Equatable, Hashable {
+              public let id: UUID
+              public let fileName: String
+              public let kind: AttachmentKind
+              public let fileSizeBytes: Int64
+              public let base64ImagePayload: String?
+              public let extractedDocumentText: String?
+
+              public enum AttachmentKind: String, Codable { case image, document }
+
+              public init(id: UUID = UUID(), fileName: String, kind: AttachmentKind, fileSizeBytes: Int64, base64ImagePayload: String? = nil, extractedDocumentText: String? = nil) {
+                  self.id = id; self.fileName = fileName; self.kind = kind; self.fileSizeBytes = fileSizeBytes
+                  self.base64ImagePayload = base64ImagePayload; self.extractedDocumentText = extractedDocumentText
+              }
+          }
+
+          public enum MessageRole: String, Codable, CaseIterable {
+              case system, user, assistant
+          }
+
+          public struct ChatMessage: Codable, Identifiable, Equatable, Hashable {
+              public var id: UUID
+              public var role: MessageRole
+              public var content: String
+              public var thinkingContent: String
+              public var thinkingDurationSeconds: Double?
+              public var attachments: [ChatAttachment]
+              public var createdAt: Date
+              public var modelUsed: String?
+              public var tokensPerSecond: Double?
+              public var timeToFirstTokenMs: Double?
+              public var promptEvalTokens: Int?
+              public var completionTokens: Int?
+              public var isStreaming: Bool
+
+              public init(
+                  id: UUID = UUID(), role: MessageRole, content: String, thinkingContent: String = "",
+                  thinkingDurationSeconds: Double? = nil, attachments: [ChatAttachment] = [], createdAt: Date = Date(),
+                  modelUsed: String? = nil, tokensPerSecond: Double? = nil, timeToFirstTokenMs: Double? = nil,
+                  promptEvalTokens: Int? = nil, completionTokens: Int? = nil, isStreaming: Bool = false
+              ) {
+                  self.id = id; self.role = role; self.content = content; self.thinkingContent = thinkingContent
+                  self.thinkingDurationSeconds = thinkingDurationSeconds; self.attachments = attachments
+                  self.createdAt = createdAt; self.modelUsed = modelUsed; self.tokensPerSecond = tokensPerSecond
+                  self.timeToFirstTokenMs = timeToFirstTokenMs; self.promptEvalTokens = promptEvalTokens
+                  self.completionTokens = completionTokens; self.isStreaming = isStreaming
+              }
+
+              public var estimatedTokenCount: Int {
+                  let textTokens = max(1, (content.count + thinkingContent.count) / 4)
+                  let docTokens = attachments.compactMap(\.extractedDocumentText).reduce(0) { $0 + ($1.count / 4) }
+                  let imageTokens = attachments.filter { $0.kind == .image }.count * 768
+                  return textTokens + docTokens + imageTokens
+              }
+          }
+
+          public struct Conversation: Codable, Identifiable, Equatable, Hashable {
+              public var id: UUID
+              public var title: String
+              public var selectedModel: String
+              public var messages: [ChatMessage]
+              public var dials: ModelDials
+              public var isPinned: Bool
+              public var createdAt: Date
+              public var updatedAt: Date
+
+              public init(id: UUID = UUID(), title: String = "New Conversation", selectedModel: String = "", messages: [ChatMessage] = [], dials: ModelDials = ModelDials(), isPinned: Bool = false, createdAt: Date = Date(), updatedAt: Date = Date()) {
+                  self.id = id; self.title = title; self.selectedModel = selectedModel; self.messages = messages
+                  self.dials = dials; self.isPinned = isPinned; self.createdAt = createdAt; self.updatedAt = updatedAt
+              }
+
+              public var totalEstimatedTokensUsed: Int {
+                  let sys = dials.systemPrompt.isEmpty ? 0 : max(1, dials.systemPrompt.count / 4)
+                  return sys + messages.reduce(0) { $0 + $1.estimatedTokenCount }
+              }
+
+              public var contextFillFraction: Double {
+                  guard dials.numCtx > 0 else { return 0 }
+                  return min(1.0, Double(totalEstimatedTokensUsed) / Double(dials.numCtx))
+              }
+          }
+
+          public struct ExampleDialogueTurn: Codable, Identifiable, Equatable, Hashable {
+              public var id: UUID = UUID()
+              public var role: MessageRole
+              public var content: String
+              public init(id: UUID = UUID(), role: MessageRole, content: String) {
+                  self.id = id; self.role = role; self.content = content
+              }
+          }
+
+          public struct ModelBuilderSpec: Codable, Equatable {
+              public var newModelName: String = ""
+              public var baseModelOrGGUFPath: String = ""
+              public var isLocalGGUFFile: Bool = false
+              public var systemPrompt: String = ""
+              public var dials: ModelDials = ModelDials()
+              public var exampleDialogue: [ExampleDialogueTurn] = []
+              public var customTemplate: String = ""
+              public var adapterLoRAPath: String = ""
+              public var licenseText: String = ""
+              public var quantizeLevel: String = ""
+
+              public init() {}
+
+              public func renderedModelfilePreview() -> String {
+                  var lines: [String] = []
+                  let base = baseModelOrGGUFPath.isEmpty ? "llama3.2:latest" : baseModelOrGGUFPath
+                  lines.append("# Generated by Ollama Studio")
+                  lines.append("FROM \(base)")
+                  if !systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                      lines.append("SYSTEM \"\"\"\n\(systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines))\n\"\"\"")
+                  }
+                  lines.append("PARAMETER temperature \(String(format: "%.2f", dials.temperature))")
+                  lines.append("PARAMETER top_k \(dials.topK)")
+                  lines.append("PARAMETER top_p \(String(format: "%.2f", dials.topP))")
+                  lines.append("PARAMETER num_ctx \(dials.numCtx)")
+                  for turn in exampleDialogue where !turn.content.isEmpty {
+                      lines.append("MESSAGE \(turn.role.rawValue) \"\"\"\n\(turn.content)\n\"\"\"")
+                  }
+                  return lines.joined(separator: "\n")
+              }
+          }
+
+          public struct PersonaPreset: Identifiable {
+              public let id: String
+              public let title: String
+              public let category: String
+              public let summary: String
+              public let systemPrompt: String
+              public let recommendedTemperature: Double
+              public let recommendedCtx: Int
+              public let sampleTurns: [ExampleDialogueTurn]
+
+              public static let library: [PersonaPreset] = [
+                  PersonaPreset(id: "editor", title: "Executive Writing Editor", category: "Writing", summary: "Tightens prose and removes AI cliches.", systemPrompt: "You are a seasoned literary editor. Rewrite drafts for clarity, rhythm, and conciseness without AI cliches.", recommendedTemperature: 0.45, recommendedCtx: 16384, sampleTurns: []),
+                  PersonaPreset(id: "architect", title: "Principal Systems Engineer", category: "Engineering", summary: "Production-grade defensive code.", systemPrompt: "You are a Principal Systems Engineer. Provide complete, idiomatic, production-ready code.", recommendedTemperature: 0.15, recommendedCtx: 32768, sampleTurns: []),
+                  PersonaPreset(id: "analyst", title: "Document & Contract Analyst", category: "Research", summary: "Extracts exact clauses and deadlines.", systemPrompt: "You are a meticulous analyst. Base every claim strictly on the attached text.", recommendedTemperature: 0.1, recommendedCtx: 32768, sampleTurns: [])
+              ]
+          }
+
+          public struct ModelPullTask: Identifiable, Equatable {
+              public let id: String
+              public var statusText: String
+              public var completedBytes: Int64
+              public var totalBytes: Int64
+              public var speedBytesPerSec: Double
+              public var isPaused: Bool
+              public var errorMessage: String?
+
+              public var fractionCompleted: Double {
+                  guard totalBytes > 0 else { return 0 }
+                  return min(1.0, Double(completedBytes) / Double(totalBytes))
+              }
+              public var formattedProgress: String {
+                  guard totalBytes > 0 else { return statusText }
+                  let doneGB = Double(completedBytes) / 1_073_741_824.0
+                  let totalGB = Double(totalBytes) / 1_073_741_824.0
+                  return String(format: "%.2f / %.2f GB", doneGB, totalGB)
+              }
+          }
+
+          public struct TrashedEntity: Codable, Identifiable, Equatable {
+              public let id: UUID
+              public let deletedAt: Date
+              public let summaryTitle: String
+              public let payload: Payload
+              public enum Payload: Codable, Equatable {
+                  case conversation(Conversation)
+                  case customModelBackup(name: String, spec: ModelBuilderSpec)
+              }
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/Models/ServerConfig.swift
+          import Foundation
+
+          public enum KVCacheQuantizationType: String, CaseIterable, Codable, Identifiable {
+              case f16 = "f16"
+              case q8_0 = "q8_0"
+              case q4_0 = "q4_0"
+
+              public var id: String { rawValue }
+              public var label: String {
+                  switch self {
+                  case .f16: return "16-Bit Full Precision (f16)"
+                  case .q8_0: return "8-Bit Balanced Compression (q8_0)"
+                  case .q4_0: return "4-Bit Maximum Compression (q4_0)"
+                  }
+              }
+              public var plainEnglishImpact: String {
+                  switch self {
+                  case .f16: return "Standard uncompressed memory cache."
+                  case .q8_0: return "Cuts conversation memory RAM usage in half with virtually zero quality loss."
+                  case .q4_0: return "Shrinks conversation memory RAM to 25% so you can fit 64k+ context windows."
+                  }
+              }
+              public var memoryMultiplier: Double {
+                  switch self {
+                  case .f16: return 1.0
+                  case .q8_0: return 0.52
+                  case .q4_0: return 0.28
+                  }
+              }
+          }
+
+          public struct ServerConfig: Codable, Equatable {
+              public var hostAddress: String = "127.0.0.1"
+              public var port: Int = 11434
+              public var allowedOrigins: String = "http://localhost:*,http://127.0.0.1:*,app://obsidian.md*,vscode-webview://*"
+              public var modelsDirectoryPath: String = "\(FileManager.default.homeDirectoryForCurrentUser.path)/.ollama/models"
+              public var defaultKeepAlive: String = "5m"
+              public var loadTimeout: String = "5m"
+              public var numParallel: Int = 1
+              public var maxLoadedModels: Int = 1
+              public var maxQueue: Int = 512
+              public var defaultContextLength: Int = 8192
+              public var maxTransferStreams: Int = 4
+              public var flashAttentionEnabled: Bool = true
+              public var kvCacheType: KVCacheQuantizationType = .q8_0
+              public var spreadAcrossGPUs: Bool = false
+              public var debugLogging: Bool = false
+              public var disableReadlineHistory: Bool = true
+              public var exposeOnLocalNetwork: Bool = false
+
+              public init() {}
+
+              public var baseURLString: String {
+                  let connectHost = (hostAddress == "0.0.0.0" || hostAddress.isEmpty) ? "127.0.0.1" : hostAddress
+                  return "http://\(connectHost):\(port)"
+              }
+
+              public mutating func enforceSafetyInvariants() {
+                  if kvCacheType != .f16 && !flashAttentionEnabled { flashAttentionEnabled = true }
+                  if exposeOnLocalNetwork { hostAddress = "0.0.0.0" }
+                  else if hostAddress == "0.0.0.0" { hostAddress = "127.0.0.1" }
+              }
+
+              public func toEnvironmentVariables() -> [String: String] {
+                  let bindHost = exposeOnLocalNetwork ? "0.0.0.0:\(port)" : "\(hostAddress):\(port)"
+                  return [
+                      "OLLAMA_HOST": bindHost,
+                      "OLLAMA_ORIGINS": allowedOrigins,
+                      "OLLAMA_MODELS": modelsDirectoryPath,
+                      "OLLAMA_KEEP_ALIVE": defaultKeepAlive,
+                      "OLLAMA_LOAD_TIMEOUT": loadTimeout,
+                      "OLLAMA_NUM_PARALLEL": "\(max(1, numParallel))",
+                      "OLLAMA_MAX_LOADED_MODELS": "\(max(1, maxLoadedModels))",
+                      "OLLAMA_MAX_QUEUE": "\(max(16, maxQueue))",
+                      "OLLAMA_CONTEXT_LENGTH": "\(max(2048, defaultContextLength))",
+                      "OLLAMA_FLASH_ATTENTION": flashAttentionEnabled ? "1" : "0",
+                      "OLLAMA_KV_CACHE_TYPE": kvCacheType.rawValue,
+                      "OLLAMA_SCHED_SPREAD": spreadAcrossGPUs ? "1" : "0",
+                      "OLLAMA_DEBUG": debugLogging ? "1" : "0"
+                  ]
+              }
+          }
+
+          public struct ExternalAppBridge: Identifiable {
+              public let id: String
+              public let appName: String
+              public let setupInstructions: String
+              public let endpointToPaste: String
+
+              public static func allBridges(port: Int) -> [ExternalAppBridge] {
+                  let base = "http://127.0.0.1:\(port)"
+                  return [
+                      ExternalAppBridge(id: "obsidian", appName: "Obsidian (Copilot / Local GPT)", setupInstructions: "Paste into Obsidian plugin settings.", endpointToPaste: base),
+                      ExternalAppBridge(id: "cursor", appName: "Cursor & VS Code (Continue.dev)", setupInstructions: "OpenAI-compatible local coding endpoint.", endpointToPaste: "\(base)/v1")
+                  ]
+              }
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/Services/EncryptedStorageService.swift
+          import Foundation
+          import CryptoKit
+
+          public final class EncryptedStorageService {
+              public static let shared = EncryptedStorageService()
+              private let fileManager = FileManager.default
+              private let queue = DispatchQueue(label: "com.ollamastudio.storage", qos: .userInitiated)
+
+              public struct PersistedVault: Codable {
+                  public var schemaVersion: Int = 2
+                  public var savedAt: Date = Date()
+                  public var conversations: [Conversation]
+                  public var modelDefaultDials: [String: ModelDials]
+                  public var serverConfig: ServerConfig
+                  public var trashedItems: [TrashedEntity]
+                  public var savedBuilderSpecs: [ModelBuilderSpec]
+              }
+
+              public var appSupportDirectory: URL {
+                  let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                  let dir = base.appendingPathComponent("OllamaStudio", isDirectory: true)
+                  if !fileManager.fileExists(atPath: dir.path) {
+                      try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+                  }
+                  return dir
+              }
+
+              public var vaultFileURL: URL { appSupportDirectory.appendingPathComponent("vault.enc") }
+
+              private init() {}
+
+              public func saveVault(_ vault: PersistedVault) throws {
+                  try queue.sync {
+                      let encoder = JSONEncoder()
+                      encoder.dateEncodingStrategy = .iso8601
+                      let plaintext = try encoder.encode(vault)
+                      let key = try loadOrCreateSymmetricKey()
+                      let sealedBox = try AES.GCM.seal(plaintext, using: key)
+                      guard let combined = sealedBox.combined else { return }
+                      try combined.write(to: vaultFileURL, options: .atomic)
+                  }
+              }
+
+              public func loadVault() -> PersistedVault? {
+                  queue.sync {
+                      guard fileManager.fileExists(atPath: vaultFileURL.path),
+                            let encryptedData = try? Data(contentsOf: vaultFileURL),
+                            let key = try? loadOrCreateSymmetricKey(),
+                            let sealedBox = try? AES.GCM.SealedBox(combined: encryptedData),
+                            let plaintext = try? AES.GCM.open(sealedBox, using: key) else { return nil }
+                      let decoder = JSONDecoder()
+                      decoder.dateDecodingStrategy = .iso8601
+                      return try? decoder.decode(PersistedVault.self, from: plaintext)
+                  }
+              }
+
+              public func createAutomaticSnapshot() {}
+
+              private func loadOrCreateSymmetricKey() throws -> SymmetricKey {
+                  let keyURL = appSupportDirectory.appendingPathComponent(".master_key")
+                  if let diskKeyData = try? Data(contentsOf: keyURL), diskKeyData.count == 32 {
+                      return SymmetricKey(data: diskKeyData)
+                  }
+                  let newKey = SymmetricKey(size: .bits256)
+                  let rawData = newKey.withUnsafeBytes { Data($0) }
+                  try rawData.write(to: keyURL, options: .atomic)
+                  try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: keyURL.path)
+                  return newKey
+              }
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/Services/HardwareMonitor.swift
+          import Foundation
+          import Darwin
+
+          @MainActor
+          public final class HardwareMonitor: ObservableObject {
+              @Published public private(set) var totalMemoryGB: Double = 16.0
+              @Published public private(set) var usedMemoryGB: Double = 8.0
+              @Published public private(set) var availableMemoryGB: Double = 8.0
+              @Published public private(set) var chipName: String = "Apple Silicon"
+              @Published public private(set) var performanceCoreCount: Int = 8
+              @Published public private(set) var freeDiskSpaceGB: Double = 100.0
+              private var timer: Timer?
+
+              public init() {
+                  self.totalMemoryGB = Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
+                  self.performanceCoreCount = ProcessInfo.processInfo.activeProcessorCount
+                  refreshMetrics()
+                  timer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+                      Task { @MainActor in self?.refreshMetrics() }
+                  }
+              }
+
+              public var memoryUsageFraction: Double {
+                  guard totalMemoryGB > 0 else { return 0 }
+                  return min(1.0, max(0.0, usedMemoryGB / totalMemoryGB))
+              }
+
+              public enum CompatibilityBadge: Equatable {
+                  case runsGreat(String)
+                  case runsModerately(String)
+                  case tooHeavy(String)
+              }
+
+              public func evaluateModelCompatibility(modelSizeBytes: Int64) -> CompatibilityBadge {
+                  let modelGB = Double(modelSizeBytes) / 1_073_741_824.0
+                  let req = modelGB + 1.2
+                  if req <= totalMemoryGB * 0.65 {
+                      return .runsGreat("Runs fast in Metal (\(String(format: "%.1f", modelGB)) GB)")
+                  } else if req <= totalMemoryGB * 0.82 {
+                      return .runsModerately("Fits in RAM (\(String(format: "%.1f", modelGB)) GB) — close heavy apps")
+                  } else {
+                      return .tooHeavy("Exceeds safe RAM (\(String(format: "%.1f", modelGB)) GB on \(Int(totalMemoryGB)) GB Mac)")
+                  }
+              }
+
+              public func refreshMetrics() {
+                  var stats = vm_statistics64()
+                  var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
+                  let hostPort = mach_host_self()
+                  let result = withUnsafeMutablePointer(to: &stats) {
+                      $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                          host_statistics64(hostPort, HOST_VM_INFO64, $0, &count)
+                      }
+                  }
+                  var pageSize: vm_size_t = 16384
+                  host_page_size(hostPort, &pageSize)
+                  if result == KERN_SUCCESS {
+                      let used = Double(stats.active_count + stats.wire_count + stats.compressor_page_count) * Double(pageSize)
+                      self.usedMemoryGB = min(totalMemoryGB, max(0.5, used / 1_073_741_824.0))
+                      self.availableMemoryGB = max(0.0, totalMemoryGB - usedMemoryGB)
+                  }
+                  if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+                     let free = attrs[.systemFreeSize] as? NSNumber {
+                      self.freeDiskSpaceGB = free.doubleValue / 1_073_741_824.0
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/Services/OllamaClient.swift
+          import Foundation
+
+          public struct HumanFriendlyError: Error, Identifiable, Equatable {
+              public let id = UUID()
+              public let title: String
+              public let plainExplanation: String
+              public let technicalDetail: String
+              public let recoveryActionTitle: String?
+              public let recoveryKind: RecoveryKind?
+
+              public enum RecoveryKind: Equatable {
+                  case startEngine
+                  case reduceContextWindow
+                  case pullMissingModel(String)
+                  case retryConnection
+              }
+
+              public static func translate(_ error: Error, endpoint: String, model: String? = nil) -> HumanFriendlyError {
+                  let nsError = error as NSError
+                  if nsError.domain == NSURLErrorDomain {
+                      return HumanFriendlyError(
+                          title: "Ollama Engine Is Asleep",
+                          plainExplanation: "Could not reach the local Ollama background service on your Mac.",
+                          technicalDetail: nsError.localizedDescription,
+                          recoveryActionTitle: "Start Ollama Engine",
+                          recoveryKind: .startEngine
+                      )
+                  }
+                  return HumanFriendlyError(
+                      title: "Local Engine Notice",
+                      plainExplanation: error.localizedDescription,
+                      technicalDetail: endpoint,
+                      recoveryActionTitle: "Retry",
+                      recoveryKind: .retryConnection
+                  )
+              }
+          }
+
+          public final class OllamaClient {
+              private let session: URLSession
+
+              public init() {
+                  let config = URLSessionConfiguration.default
+                  config.timeoutIntervalForRequest = 300
+                  config.timeoutIntervalForResource = 86400
+                  self.session = URLSession(configuration: config)
+              }
+
+              public func fetchVersion(baseURL: String) async throws -> String {
+                  guard let url = URL(string: "\(baseURL)/api/version") else { throw URLError(.badURL) }
+                  let (data, _) = try await session.data(from: url)
+                  if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                     let v = json["version"] as? String { return v }
+                  return "Running"
+              }
+
+              public func fetchInstalledModels(baseURL: String) async throws -> [OllamaModelSummary] {
+                  guard let url = URL(string: "\(baseURL)/api/tags") else { throw URLError(.badURL) }
+                  let (data, _) = try await session.data(from: url)
+                  struct Wrapper: Decodable { let models: [OllamaModelSummary] }
+                  return try JSONDecoder().decode(Wrapper.self, from: data).models
+              }
+
+              public func fetchRunningModels(baseURL: String) async throws -> [RunningModelProcess] {
+                  guard let url = URL(string: "\(baseURL)/api/ps") else { throw URLError(.badURL) }
+                  let (data, _) = try await session.data(from: url)
+                  struct Wrapper: Decodable { let models: [RunningModelProcess] }
+                  return try JSONDecoder().decode(Wrapper.self, from: data).models
+              }
+
+              public func fetchModelShowInfo(baseURL: String, modelName: String) async throws -> OllamaModelShowInfo {
+                  guard let url = URL(string: "\(baseURL)/api/show") else { throw URLError(.badURL) }
+                  var req = URLRequest(url: url)
+                  req.httpMethod = "POST"
+                  req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                  req.httpBody = try JSONSerialization.data(withJSONObject: ["model": modelName])
+                  let (data, _) = try await session.data(for: req)
+                  return try JSONDecoder().decode(OllamaModelShowInfo.self, from: data)
+              }
+
+              public func setModelResidency(baseURL: String, modelName: String, keepAlive: Any) async throws {
+                  guard let url = URL(string: "\(baseURL)/api/generate") else { throw URLError(.badURL) }
+                  var req = URLRequest(url: url)
+                  req.httpMethod = "POST"
+                  req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                  req.httpBody = try JSONSerialization.data(withJSONObject: ["model": modelName, "prompt": "", "keep_alive": keepAlive, "stream": false])
+                  _ = try await session.data(for: req)
+              }
+
+              public func deleteModel(baseURL: String, modelName: String) async throws {
+                  guard let url = URL(string: "\(baseURL)/api/delete") else { throw URLError(.badURL) }
+                  var req = URLRequest(url: url)
+                  req.httpMethod = "DELETE"
+                  req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                  req.httpBody = try JSONSerialization.data(withJSONObject: ["model": modelName])
+                  _ = try await session.data(for: req)
+              }
+
+              public struct ChatStreamEvent {
+                  public let contentDelta: String
+                  public let thinkingDelta: String
+                  public let isDone: Bool
+                  public let tokensPerSecond: Double?
+                  public let timeToFirstTokenMs: Double?
+                  public let promptEvalCount: Int?
+                  public let evalCount: Int?
+              }
+
+              public func streamChat(baseURL: String, model: String, messages: [ChatMessage], dials: ModelDials) -> AsyncThrowingStream<ChatStreamEvent, Error> {
+                  AsyncThrowingStream { continuation in
+                      let task = Task {
+                          do {
+                              guard let url = URL(string: "\(baseURL)/api/chat") else { throw URLError(.badURL) }
+                              var req = URLRequest(url: url)
+                              req.httpMethod = "POST"
+                              req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+                              var wireMessages: [[String: Any]] = []
+                              let sys = dials.systemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+                              if !sys.isEmpty { wireMessages.append(["role": "system", "content": sys]) }
+
+                              let slice = dials.statelessNoHistory ? (messages.last.map { [$0] } ?? []) : messages
+                              for msg in slice where !msg.isStreaming {
+                                  var text = msg.content
+                                  let docs = msg.attachments.filter { $0.kind == .document }
+                                  if !docs.isEmpty {
+                                      let joined = docs.compactMap { a -> String? in
+                                          guard let t = a.extractedDocumentText else { return nil }
+                                          return "--- File: \(a.fileName) ---\n\(t)"
+                                      }.joined(separator: "\n\n")
+                                      text = "\(joined)\n\n\(text)"
+                                  }
+                                  var entry: [String: Any] = ["role": msg.role.rawValue, "content": text]
+                                  let imgs = msg.attachments.compactMap(\.base64ImagePayload)
+                                  if !imgs.isEmpty { entry["images"] = imgs }
+                                  wireMessages.append(entry)
+                              }
+
+                              var body: [String: Any] = [
+                                  "model": model,
+                                  "messages": wireMessages,
+                                  "stream": true,
+                                  "options": dials.toOllamaOptionsDictionary()
+                              ]
+                              if let thinkVal = dials.thinkingMode.apiJSONValue { body["think"] = thinkVal }
+                              if let ka = dials.keepAlive.apiValue { body["keep_alive"] = ka }
+                              if dials.formatMode == .jsonObject { body["format"] = "json" }
+
+                              req.httpBody = try JSONSerialization.data(withJSONObject: body)
+                              let start = CFAbsoluteTimeGetCurrent()
+                              var firstToken: CFAbsoluteTime? = nil
+
+                              let (bytes, _) = try await session.bytes(for: req)
+                              for try await line in bytes.lines {
+                                  if Task.isCancelled { break }
+                                  guard let data = line.data(using: .utf8),
+                                        let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                                  if firstToken == nil { firstToken = CFAbsoluteTimeGetCurrent() }
+                                  let msgObj = json["message"] as? [String: Any]
+                                  let cDelta = (msgObj?["content"] as? String) ?? ""
+                                  let tDelta = (msgObj?["thinking"] as? String) ?? ""
+                                  let done = (json["done"] as? Bool) ?? false
+                                  var tps: Double? = nil
+                                  if let ec = json["eval_count"] as? Int, let ed = json["eval_duration"] as? Double, ed > 0 {
+                                      tps = Double(ec) / (ed / 1_000_000_000.0)
+                                  }
+                                  continuation.yield(ChatStreamEvent(
+                                      contentDelta: cDelta, thinkingDelta: tDelta, isDone: done,
+                                      tokensPerSecond: tps,
+                                      timeToFirstTokenMs: firstToken.map { ($0 - start) * 1000.0 },
+                                      promptEvalCount: json["prompt_eval_count"] as? Int,
+                                      evalCount: json["eval_count"] as? Int
+                                  ))
+                                  if done { break }
+                              }
+                              continuation.finish()
+                          } catch {
+                              continuation.finish(throwing: error)
+                          }
+                      }
+                      continuation.onTermination = { _ in task.cancel() }
+                  }
+              }
+
+              public struct PullProgressEvent {
+                  public let status: String
+                  public let completed: Int64
+                  public let total: Int64
+              }
+
+              public func streamPullModel(baseURL: String, modelIdentifier: String) -> AsyncThrowingStream<PullProgressEvent, Error> {
+                  AsyncThrowingStream { continuation in
+                      let task = Task {
+                          do {
+                              guard let url = URL(string: "\(baseURL)/api/pull") else { throw URLError(.badURL) }
+                              var req = URLRequest(url: url)
+                              req.httpMethod = "POST"
+                              req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                              req.httpBody = try JSONSerialization.data(withJSONObject: ["model": modelIdentifier, "stream": true])
+                              let (bytes, _) = try await session.bytes(for: req)
+                              for try await line in bytes.lines {
+                                  if Task.isCancelled { break }
+                                  guard let d = line.data(using: .utf8),
+                                        let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { continue }
+                                  continuation.yield(PullProgressEvent(
+                                      status: (json["status"] as? String) ?? "Downloading...",
+                                      completed: (json["completed"] as? Int64) ?? 0,
+                                      total: (json["total"] as? Int64) ?? 0
+                                  ))
+                              }
+                              continuation.finish()
+                          } catch {
+                              continuation.finish(throwing: error)
+                          }
+                      }
+                      continuation.onTermination = { _ in task.cancel() }
+                  }
+              }
+
+              public func createCustomModel(baseURL: String, spec: ModelBuilderSpec) -> AsyncThrowingStream<String, Error> {
+                  AsyncThrowingStream { continuation in
+                      let task = Task {
+                          do {
+                              guard let url = URL(string: "\(baseURL)/api/create") else { throw URLError(.badURL) }
+                              var req = URLRequest(url: url)
+                              req.httpMethod = "POST"
+                              req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                              let payload: [String: Any] = [
+                                  "model": spec.newModelName,
+                                  "from": spec.baseModelOrGGUFPath,
+                                  "system": spec.systemPrompt,
+                                  "parameters": spec.dials.toModelfileParametersMap(),
+                                  "stream": true
+                              ]
+                              req.httpBody = try JSONSerialization.data(withJSONObject: payload)
+                              let (bytes, _) = try await session.bytes(for: req)
+                              for try await line in bytes.lines {
+                                  if let d = line.data(using: .utf8),
+                                     let json = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                                     let status = json["status"] as? String {
+                                      continuation.yield(status)
+                                  }
+                              }
+                              continuation.finish()
+                          } catch {
+                              continuation.finish(throwing: error)
+                          }
+                      }
+                      continuation.onTermination = { _ in task.cancel() }
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/Services/ProcessManager.swift
+          import Foundation
+          import AppKit
+
+          @MainActor
+          public final class ProcessManager: ObservableObject {
+              @Published public private(set) var isManagedProcessRunning: Bool = false
+              @Published public private(set) var detectedBinaryPath: String? = nil
+              @Published public private(set) var logLines: [LogEntry] = []
+
+              private var serverProcess: Process?
+              private var outputPipe: Pipe?
+
+              public struct LogEntry: Identifiable, Equatable {
+                  public let id = UUID()
+                  public let timestamp: Date
+                  public let line: String
+                  public let isErrorOrWarn: Bool
+              }
+
+              public init() {
+                  self.detectedBinaryPath = Self.locateOllamaBinary()
+                  appendSystemLog("Ollama Studio Ready.")
+              }
+
+              public static func locateOllamaBinary() -> String? {
+                  let candidates = [
+                      "/opt/homebrew/bin/ollama",
+                      "/usr/local/bin/ollama",
+                      "/Applications/Ollama.app/Contents/Resources/ollama"
+                  ]
+                  return candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+              }
+
+              public func startManagedServer(config: ServerConfig) {
+                  guard let binary = detectedBinaryPath ?? Self.locateOllamaBinary() else {
+                      appendSystemLog("Ollama binary not found in /Applications/Ollama.app or /opt/homebrew/bin.", isWarn: true)
+                      return
+                  }
+                  let proc = Process()
+                  proc.executableURL = URL(fileURLWithPath: binary)
+                  proc.arguments = ["serve"]
+                  var env = ProcessInfo.processInfo.environment
+                  for (k, v) in config.toEnvironmentVariables() { env[k] = v }
+                  proc.environment = env
+
+                  let pipe = Pipe()
+                  proc.standardOutput = pipe
+                  proc.standardError = pipe
+                  self.outputPipe = pipe
+                  pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+                      let data = handle.availableData
+                      guard !data.isEmpty, let chunk = String(data: data, encoding: .utf8) else { return }
+                      Task { @MainActor [weak self] in
+                          for line in chunk.components(separatedBy: .newlines) where !line.isEmpty {
+                              self?.appendSystemLog(line)
+                          }
+                      }
+                  }
+                  try? proc.run()
+                  self.serverProcess = proc
+                  self.isManagedProcessRunning = true
+              }
+
+              public func stopServer() {
+                  serverProcess?.terminate()
+                  serverProcess = nil
+                  isManagedProcessRunning = false
+              }
+
+              public func restartServer(with config: ServerConfig) async {
+                  stopServer()
+                  try? await Task.sleep(nanoseconds: 600_000_000)
+                  startManagedServer(config: config)
+              }
+
+              public func buildModelViaCLI(spec: ModelBuilderSpec, config: ServerConfig) async throws {
+                  guard let binary = detectedBinaryPath ?? Self.locateOllamaBinary() else { return }
+                  let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("Modelfile-\(UUID().uuidString)")
+                  try spec.renderedModelfilePreview().write(to: tmp, atomically: true, encoding: .utf8)
+                  defer { try? FileManager.default.removeItem(at: tmp) }
+                  let proc = Process()
+                  proc.executableURL = URL(fileURLWithPath: binary)
+                  proc.arguments = ["create", spec.newModelName, "-f", tmp.path]
+                  try proc.run()
+                  proc.waitUntilExit()
+              }
+
+              public func migrateModelsStorage(from sourcePath: String, to destinationPath: String) async throws {
+                  let fm = FileManager.default
+                  if !fm.fileExists(atPath: destinationPath) {
+                      try fm.createDirectory(atPath: destinationPath, withIntermediateDirectories: true)
+                  }
+                  if fm.fileExists(atPath: sourcePath) {
+                      for item in try fm.contentsOfDirectory(atPath: sourcePath) {
+                          try? fm.copyItem(
+                              atPath: (sourcePath as NSString).appendingPathComponent(item),
+                              toPath: (destinationPath as NSString).appendingPathComponent(item)
+                          )
+                      }
+                  }
+              }
+
+              public func appendSystemLog(_ message: String, isWarn: Bool = false) {
+                  logLines.append(LogEntry(timestamp: Date(), line: message, isErrorOrWarn: isWarn))
+                  if logLines.count > 400 { logLines.removeFirst() }
+              }
+
+              public func exportDiagnosticsBundle(config: ServerConfig, hardware: HardwareMonitor, models: [OllamaModelSummary]) -> URL? {
+                  let url = FileManager.default.temporaryDirectory.appendingPathComponent("OllamaStudio-Diagnostics.txt")
+                  let text = "Ollama Studio Diagnostics\nRAM: \(hardware.totalMemoryGB) GB\nModels: \(models.map(\.name).joined(separator: ", "))"
+                  try? text.write(to: url, atomically: true, encoding: .utf8)
+                  return url
+              }
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/App/AppState.swift
+          import SwiftUI
+          import AppKit
+          import PDFKit
+
+          public enum PrimaryWorkspaceTab: String, CaseIterable, Identifiable {
+              case chat = "chat"
+              case modelsAndRAM = "models"
+              case modelBuilder = "builder"
+              case serverControl = "server"
+
+              public var id: String { rawValue }
+              public var title: String {
+                  switch self {
+                  case .chat: return "Conversations"
+                  case .modelsAndRAM: return "Models & RAM"
+                  case .modelBuilder: return "Model Builder"
+                  case .serverControl: return "Server Control"
+                  }
+              }
+              public var shortcutLabel: String {
+                  switch self {
+                  case .chat: return "⌘1"
+                  case .modelsAndRAM: return "⌘2"
+                  case .modelBuilder: return "⌘3"
+                  case .serverControl: return "⌘4"
+                  }
+              }
+              public var iconName: StudioIconName {
+                  switch self {
+                  case .chat: return .chat
+                  case .modelsAndRAM: return .models
+                  case .modelBuilder: return .builder
+                  case .serverControl: return .server
+                  }
+              }
+          }
+
+          @MainActor
+          public final class AppState: ObservableObject {
+              @Published public var selectedTab: PrimaryWorkspaceTab = .chat
+              @Published public var isInspectorDrawerOpen: Bool = false
+              @Published public var isSettingsSheetOpen: Bool = false
+              @Published public var isQuickActionSheetOpen: Bool = false
+              @Published public var isTrashSheetOpen: Bool = false
+              @Published public var inspectedModelInfo: OllamaModelShowInfo? = nil
+              @Published public var inspectedModelName: String? = nil
+
+              @Published public var conversations: [Conversation] = []
+              @Published public var activeConversationID: UUID? = nil
+              @Published public var searchQuery: String = ""
+              @Published public var modelDefaultDials: [String: ModelDials] = [:]
+              @Published public var serverConfig: ServerConfig = ServerConfig()
+              @Published public var builderDraft: ModelBuilderSpec = ModelBuilderSpec()
+              @Published public var trashedItems: [TrashedEntity] = []
+
+              @Published public var isEngineOnline: Bool = false
+              @Published public var engineVersion: String = "Checking..."
+              @Published public var installedModels: [OllamaModelSummary] = []
+              @Published public var runningModels: [RunningModelProcess] = []
+              @Published public var activePullTasks: [ModelPullTask] = []
+              @Published public var activeErrorBanner: HumanFriendlyError? = nil
+              @Published public var activeUndoToast: UndoToastBanner? = nil
+              @Published public var isGeneratingReply: Bool = false
+              @Published public var isBuildingModel: Bool = false
+              @Published public var builderStatusLog: String = ""
+
+              public struct UndoToastBanner: Identifiable, Equatable {
+                  public let id = UUID()
+                  public let message: String
+                  public let trashedItemID: UUID
+              }
+
+              public let client = OllamaClient()
+              public let hardware = HardwareMonitor()
+              public let processManager = ProcessManager()
+              private let storage = EncryptedStorageService.shared
+              private var streamTask: Task<Void, Never>? = nil
+              private var pullTasksMap: [String: Task<Void, Never>] = [:]
+              private var statusPollTimer: Timer? = nil
+
+              public init() {
+                  loadFromEncryptedVault()
+                  startEngineHeartbeat()
+              }
+
+              public var activeConversation: Conversation? {
+                  guard let id = activeConversationID else { return conversations.first }
+                  return conversations.first(where: { $0.id == id }) ?? conversations.first
+              }
+
+              public var activeConversationIndex: Int? {
+                  guard let id = activeConversation?.id else { return nil }
+                  return conversations.firstIndex(where: { $0.id == id })
+              }
+
+              public var filteredConversations: [Conversation] {
+                  let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                  guard !q.isEmpty else { return conversations }
+                  return conversations.filter { $0.title.lowercased().contains(q) }
+              }
+
+              public var activeModelSummary: OllamaModelSummary? {
+                  guard let name = activeConversation?.selectedModel else { return installedModels.first }
+                  return installedModels.first(where: { $0.name == name }) ?? installedModels.first
+              }
+
+              public func loadFromEncryptedVault() {
+                  if let vault = storage.loadVault() {
+                      self.conversations = vault.conversations
+                      self.modelDefaultDials = vault.modelDefaultDials
+                      self.serverConfig = vault.serverConfig
+                      self.trashedItems = vault.trashedItems
+                      self.activeConversationID = conversations.first?.id
+                  }
+                  if conversations.isEmpty {
+                      let starter = Conversation(title: "Welcome Workspace")
+                      conversations = [starter]
+                      activeConversationID = starter.id
+                  }
+              }
+
+              public func persistVault() {
+                  let vault = EncryptedStorageService.PersistedVault(
+                      conversations: conversations, modelDefaultDials: modelDefaultDials,
+                      serverConfig: serverConfig, trashedItems: trashedItems, savedBuilderSpecs: [builderDraft]
+                  )
+                  try? storage.saveVault(vault)
+              }
+
+              public func startEngineHeartbeat() {
+                  Task { await refreshEngineStatus() }
+                  statusPollTimer = Timer.scheduledTimer(withTimeInterval: 4.0, repeats: true) { [weak self] _ in
+                      Task { @MainActor [weak self] in await self?.refreshEngineStatus() }
+                  }
+              }
+
+              public func refreshEngineStatus() async {
+                  let baseURL = serverConfig.baseURLString
+                  do {
+                      self.engineVersion = try await client.fetchVersion(baseURL: baseURL)
+                      self.installedModels = try await client.fetchInstalledModels(baseURL: baseURL)
+                      self.runningModels = try await client.fetchRunningModels(baseURL: baseURL)
+                      self.isEngineOnline = true
+                      if let first = installedModels.first?.name {
+                          for i in conversations.indices where conversations[i].selectedModel.isEmpty {
+                              conversations[i].selectedModel = first
+                          }
+                      }
+                  } catch {
+                      self.isEngineOnline = false
+                      self.engineVersion = "Offline"
+                  }
+              }
+
+              public func createNewConversation() {
+                  let model = activeConversation?.selectedModel ?? installedModels.first?.name ?? ""
+                  let conv = Conversation(title: "New Conversation", selectedModel: model, dials: modelDefaultDials[model] ?? ModelDials())
+                  conversations.insert(conv, at: 0)
+                  activeConversationID = conv.id
+                  selectedTab = .chat
+                  persistVault()
+              }
+
+              public func clearActiveConversationMessages() {
+                  guard let idx = activeConversationIndex else { return }
+                  conversations[idx].messages.removeAll()
+                  persistVault()
+              }
+
+              public func deleteConversationToTrash(_ id: UUID) {
+                  guard let idx = conversations.firstIndex(where: { $0.id == id }) else { return }
+                  let removed = conversations.remove(at: idx)
+                  let trashed = TrashedEntity(id: UUID(), deletedAt: Date(), summaryTitle: removed.title, payload: .conversation(removed))
+                  trashedItems.insert(trashed, at: 0)
+                  if conversations.isEmpty { createNewConversation() }
+                  else if activeConversationID == id { activeConversationID = conversations.first?.id }
+                  persistVault()
+                  activeUndoToast = UndoToastBanner(message: "Moved '\(removed.title)' to Trash", trashedItemID: trashed.id)
+              }
+
+              public func restoreFromTrash(_ trashedID: UUID) {
+                  guard let idx = trashedItems.firstIndex(where: { $0.id == trashedID }) else { return }
+                  let item = trashedItems.remove(at: idx)
+                  if case .conversation(let c) = item.payload {
+                      conversations.insert(c, at: 0)
+                      activeConversationID = c.id
+                  }
+                  activeUndoToast = nil
+                  persistVault()
+              }
+
+              public func sendUserMessage(text: String, attachments: [ChatAttachment]) {
+                  guard let idx = activeConversationIndex else { return }
+                  let model = conversations[idx].selectedModel
+                  guard !model.isEmpty else {
+                      activeErrorBanner = HumanFriendlyError(
+                          title: "No Model Selected",
+                          plainExplanation: "Open Models & RAM (⌘2) to select or pull a model first.",
+                          technicalDetail: "", recoveryActionTitle: "Pull Llama 3.2", recoveryKind: .pullMissingModel("llama3.2:3b")
+                      )
+                      return
+                  }
+                  conversations[idx].messages.append(ChatMessage(role: .user, content: text, attachments: attachments))
+                  if conversations[idx].messages.count == 1 && !text.isEmpty {
+                      conversations[idx].title = String(text.prefix(44))
+                  }
+                  persistVault()
+                  streamAssistantResponse(forConversationAt: idx)
+              }
+
+              public func updateAndResendMessage(messageID: UUID, updatedText: String) {
+                  guard let idx = activeConversationIndex,
+                        let mIdx = conversations[idx].messages.firstIndex(where: { $0.id == messageID }) else { return }
+                  conversations[idx].messages[mIdx].content = updatedText
+                  if mIdx + 1 < conversations[idx].messages.count {
+                      conversations[idx].messages.removeSubrange((mIdx + 1)..<conversations[idx].messages.count)
+                  }
+                  streamAssistantResponse(forConversationAt: idx)
+              }
+
+              public func stopActiveGeneration() {
+                  streamTask?.cancel()
+                  isGeneratingReply = false
+              }
+
+              private func streamAssistantResponse(forConversationAt convIndex: Int) {
+                  streamTask?.cancel()
+                  isGeneratingReply = true
+                  let convID = conversations[convIndex].id
+                  let model = conversations[convIndex].selectedModel
+                  let dials = conversations[convIndex].dials
+                  let history = conversations[convIndex].messages
+                  let baseURL = serverConfig.baseURLString
+
+                  let placeholder = ChatMessage(role: .assistant, content: "", modelUsed: model, isStreaming: true)
+                  conversations[convIndex].messages.append(placeholder)
+                  let msgID = placeholder.id
+
+                  streamTask = Task {
+                      do {
+                          for try await ev in client.streamChat(baseURL: baseURL, model: model, messages: history, dials: dials) {
+                              guard let cIdx = conversations.firstIndex(where: { $0.id == convID }),
+                                    let mIdx = conversations[cIdx].messages.firstIndex(where: { $0.id == msgID }) else { break }
+                              conversations[cIdx].messages[mIdx].thinkingContent += ev.thinkingDelta
+                              conversations[cIdx].messages[mIdx].content += ev.contentDelta
+                              if let tps = ev.tokensPerSecond { conversations[cIdx].messages[mIdx].tokensPerSecond = tps }
+                              if ev.isDone { conversations[cIdx].messages[mIdx].isStreaming = false }
+                          }
+                      } catch {
+                          activeErrorBanner = HumanFriendlyError.translate(error, endpoint: "/api/chat", model: model)
+                      }
+                      isGeneratingReply = false
+                      persistVault()
+                  }
+              }
+
+              public func loadAttachment(from url: URL) -> ChatAttachment? {
+                  let ext = url.pathExtension.lowercased()
+                  let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+                  if ["png", "jpg", "jpeg", "webp"].contains(ext), let d = try? Data(contentsOf: url) {
+                      return ChatAttachment(fileName: url.lastPathComponent, kind: .image, fileSizeBytes: size, base64ImagePayload: d.base64EncodedString())
+                  }
+                  if ext == "pdf", let pdf = PDFDocument(url: url) {
+                      var t = ""
+                      for i in 0..<pdf.pageCount { t += (pdf.page(at: i)?.string ?? "") + "\n" }
+                      return ChatAttachment(fileName: url.lastPathComponent, kind: .document, fileSizeBytes: size, extractedDocumentText: String(t.prefix(100_000)))
+                  }
+                  if let t = try? String(contentsOf: url, encoding: .utf8) {
+                      return ChatAttachment(fileName: url.lastPathComponent, kind: .document, fileSizeBytes: size, extractedDocumentText: String(t.prefix(100_000)))
+                  }
+                  return nil
+              }
+
+              public func prewarmModelIntoRAM(_ modelName: String, keepAlive: String = "15m") {
+                  Task {
+                      try? await client.setModelResidency(baseURL: serverConfig.baseURLString, modelName: modelName, keepAlive: keepAlive)
+                      await refreshEngineStatus()
+                  }
+              }
+
+              public func ejectModelFromRAM(_ modelName: String) {
+                  Task {
+                      try? await client.setModelResidency(baseURL: serverConfig.baseURLString, modelName: modelName, keepAlive: 0)
+                      await refreshEngineStatus()
+                  }
+              }
+
+              public func inspectModel(_ modelName: String) {
+                  inspectedModelName = modelName
+                  Task {
+                      self.inspectedModelInfo = try? await client.fetchModelShowInfo(baseURL: serverConfig.baseURLString, modelName: modelName)
+                  }
+              }
+
+              public func startOrResumeModelPull(rawIdentifier: String) {
+                  var id = rawIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+                  if id.hasPrefix("https://huggingface.co/") {
+                      id = id.replacingOccurrences(of: "https://huggingface.co/", with: "hf.co/")
+                  }
+                  guard !id.isEmpty else { return }
+                  if !activePullTasks.contains(where: { $0.id == id }) {
+                      activePullTasks.insert(ModelPullTask(id: id, statusText: "Starting...", completedBytes: 0, totalBytes: 0, speedBytesPerSec: 0, isPaused: false), at: 0)
+                  }
+                  let baseURL = serverConfig.baseURLString
+                  pullTasksMap[id] = Task {
+                      do {
+                          for try await ev in client.streamPullModel(baseURL: baseURL, modelIdentifier: id) {
+                              if let i = activePullTasks.firstIndex(where: { $0.id == id }) {
+                                  activePullTasks[i].statusText = ev.status
+                                  activePullTasks[i].completedBytes = ev.completed
+                                  activePullTasks[i].totalBytes = ev.total
+                              }
+                          }
+                          activePullTasks.removeAll(where: { $0.id == id })
+                          await refreshEngineStatus()
+                      } catch {
+                          if let i = activePullTasks.firstIndex(where: { $0.id == id }) {
+                              activePullTasks[i].isPaused = true
+                              activePullTasks[i].statusText = "Paused"
+                          }
+                      }
+                  }
+              }
+
+              public func pauseModelPull(identifier: String) {
+                  pullTasksMap[identifier]?.cancel()
+                  if let i = activePullTasks.firstIndex(where: { $0.id == identifier }) {
+                      activePullTasks[i].isPaused = true
+                  }
+              }
+
+              public func loadActiveChatIntoModelBuilder() {
+                  guard let conv = activeConversation else { return }
+                  builderDraft.baseModelOrGGUFPath = conv.selectedModel
+                  builderDraft.systemPrompt = conv.dials.systemPrompt
+                  builderDraft.dials = conv.dials
+                  builderDraft.newModelName = "custom-studio:latest"
+                  selectedTab = .modelBuilder
+              }
+
+              public func buildCustomModelFromDraft() {
+                  isBuildingModel = true
+                  Task {
+                      do {
+                          for try await status in client.createCustomModel(baseURL: serverConfig.baseURLString, spec: builderDraft) {
+                              builderStatusLog = status
+                          }
+                          builderStatusLog = "Created \(builderDraft.newModelName)"
+                          await refreshEngineStatus()
+                      } catch {
+                          builderStatusLog = error.localizedDescription
+                      }
+                      isBuildingModel = false
+                  }
+              }
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/Views/AllStudioViews.swift
+          import SwiftUI
+          import UniformTypeIdentifiers
+
+          public struct MainView: View {
+              @EnvironmentObject private var appState: AppState
+              @EnvironmentObject private var theme: ThemeManager
+              @Environment(\.colorScheme) private var systemColorScheme
+
+              public init() {}
+
+              public var body: some View {
+                  let palette = theme.palette(for: systemColorScheme)
+                  ZStack(alignment: .bottom) {
+                      palette.windowCanvas.ignoresSafeArea()
+                      HStack(spacing: 0) {
+                          SidebarView(palette: palette).frame(width: StudioMetrics.sidebarWidth)
+                          ZStack {
+                              RoundedRectangle(cornerRadius: StudioMetrics.cardCornerRadius, style: .continuous)
+                                  .fill(palette.cardSurface)
+                                  .overlay(RoundedRectangle(cornerRadius: StudioMetrics.cardCornerRadius, style: .continuous).strokeBorder(palette.cardRing, lineWidth: 1))
+                              HStack(spacing: 0) {
+                                  VStack(spacing: 0) {
+                                      switch appState.selectedTab {
+                                      case .chat: ChatView(palette: palette)
+                                      case .modelsAndRAM: ModelsManagerView(palette: palette)
+                                      case .modelBuilder: ModelBuilderView(palette: palette)
+                                      case .serverControl: ServerControlView(palette: palette)
+                                      }
+                                  }
+                                  if appState.isInspectorDrawerOpen {
+                                      Divider().overlay(palette.hairlineBorder)
+                                      InspectorDrawerView(palette: palette).frame(width: StudioMetrics.inspectorWidth)
+                                  }
+                              }
+                              .clipShape(RoundedRectangle(cornerRadius: StudioMetrics.cardCornerRadius, style: .continuous))
+                          }
+                          .padding(.top, StudioMetrics.cardOuterInset)
+                          .padding(.bottom, StudioMetrics.cardOuterInset)
+                          .padding(.trailing, StudioMetrics.cardOuterInset)
+                      }
+                  }
+                  .sheet(isPresented: $appState.isSettingsSheetOpen) {
+                      SettingsView(palette: palette).environmentObject(appState).environmentObject(theme)
+                  }
+              }
+          }
+
+          public struct SidebarView: View {
+              @EnvironmentObject private var appState: AppState
+              @EnvironmentObject private var theme: ThemeManager
+              public let palette: StudioPalette
+
+              public var body: some View {
+                  VStack(alignment: .leading, spacing: 0) {
+                      HStack {
+                          Spacer()
+                          Button { appState.createNewConversation() } label: {
+                              HStack(spacing: 5) {
+                                  StudioIcon(.plus, size: 12, color: palette.accent)
+                                  Text("New Chat").font(theme.captionFont(weight: .semibold)).foregroundStyle(palette.accent)
+                              }
+                              .padding(.horizontal, 9).padding(.vertical, 4.5)
+                              .background(RoundedRectangle(cornerRadius: 6).fill(palette.accentSoft))
+                          }
+                          .buttonStyle(.plain)
+                      }
+                      .frame(height: StudioMetrics.trafficLightClearanceHeight)
+                      .padding(.horizontal, 12)
+
+                      VStack(spacing: 3) {
+                          ForEach(PrimaryWorkspaceTab.allCases) { tab in
+                              let isSelected = appState.selectedTab == tab
+                              Button { appState.selectedTab = tab } label: {
+                                  HStack(spacing: 9) {
+                                      StudioIcon(tab.iconName, size: 14, color: isSelected ? palette.accent : palette.secondaryText)
+                                      Text(tab.title).font(theme.bodyFont(weight: isSelected ? .semibold : .regular)).foregroundStyle(isSelected ? palette.primaryText : palette.secondaryText)
+                                      Spacer()
+                                      Text(tab.shortcutLabel).font(theme.captionFont()).foregroundStyle(palette.mutedText)
+                                  }
+                                  .padding(.horizontal, 10).padding(.vertical, 6.5)
+                                  .background(RoundedRectangle(cornerRadius: 6).fill(isSelected ? palette.cardSurface.opacity(0.85) : Color.clear))
+                              }
+                              .buttonStyle(.plain)
+                          }
+                      }
+                      .padding(.horizontal, 10).padding(.bottom, 12)
+
+                      ScrollView {
+                          LazyVStack(spacing: 2) {
+                              ForEach(appState.filteredConversations) { conv in
+                                  let isSelected = (appState.activeConversation?.id == conv.id && appState.selectedTab == .chat)
+                                  HStack {
+                                      Text(conv.title).font(theme.bodyFont(weight: isSelected ? .medium : .regular)).foregroundStyle(isSelected ? palette.primaryText : palette.secondaryText).lineLimit(1)
+                                      Spacer()
+                                  }
+                                  .padding(.horizontal, 10).padding(.vertical, 6.5)
+                                  .background(RoundedRectangle(cornerRadius: 6).fill(isSelected ? palette.cardSurface.opacity(0.9) : Color.clear))
+                                  .onTapGesture {
+                                      appState.activeConversationID = conv.id
+                                      appState.selectedTab = .chat
+                                  }
+                              }
+                          }
+                          .padding(.horizontal, 10)
+                      }
+
+                      Spacer()
+
+                      VStack(alignment: .leading, spacing: 7) {
+                          HStack(spacing: 6) {
+                              Circle().fill(appState.isEngineOnline ? palette.statusHealthy : palette.statusWarning).frame(width: 7, height: 7)
+                              Text(appState.isEngineOnline ? "Local Engine · v\(appState.engineVersion)" : "Engine Offline").font(theme.captionFont(weight: .medium)).foregroundStyle(palette.primaryText)
+                              Spacer()
+                              StudioIcon(.lock, size: 11, color: palette.accent)
+                          }
+                          Text(String(format: "Unified RAM %.1f / %.0f GB", appState.hardware.usedMemoryGB, appState.hardware.totalMemoryGB))
+                              .font(theme.monoFont(size: 11)).foregroundStyle(palette.secondaryText)
+                          Divider().overlay(palette.hairlineBorder)
+                          HStack {
+                              Button("Settings") { appState.isSettingsSheetOpen = true }.buttonStyle(.plain).font(theme.captionFont(weight: .medium)).foregroundStyle(palette.secondaryText)
+                              Spacer()
+                              Button("Dials (⌘I)") { appState.isInspectorDrawerOpen.toggle() }.buttonStyle(.plain).font(theme.captionFont(weight: .medium)).foregroundStyle(palette.accent)
+                          }
+                      }
+                      .padding(11)
+                      .background(RoundedRectangle(cornerRadius: 8).fill(palette.cardSurface.opacity(0.65)))
+                      .padding(10)
+                  }
+              }
+          }
+
+          public struct ChatView: View {
+              @EnvironmentObject private var appState: AppState
+              @EnvironmentObject private var theme: ThemeManager
+              public let palette: StudioPalette
+              @State private var draftPrompt: String = ""
+
+              public var body: some View {
+                  let conv = appState.activeConversation
+                  VStack(spacing: 0) {
+                      HStack {
+                          Text(conv?.title ?? "Conversation").font(theme.bodyFont(weight: .semibold)).foregroundStyle(palette.primaryText)
+                          Spacer()
+                          if let c = conv {
+                              Text("\(c.totalEstimatedTokensUsed) / \(c.dials.numCtx) ctx").font(theme.monoFont(size: 11)).foregroundStyle(palette.mutedText)
+                          }
+                          Button { appState.isInspectorDrawerOpen.toggle() } label: {
+                              StudioIcon(.dials, size: 14, color: appState.isInspectorDrawerOpen ? palette.accent : palette.secondaryText)
+                          }
+                          .buttonStyle(.plain)
+                      }
+                      .padding(.horizontal, 22).frame(height: 44)
+                      .overlay(alignment: .bottom) { Rectangle().fill(palette.hairlineBorder).frame(height: 1) }
+
+                      ScrollView {
+                          VStack(alignment: .leading, spacing: 24) {
+                              ForEach(conv?.messages ?? []) { message in
+                                  VStack(alignment: .leading, spacing: 6) {
+                                      Text(message.role == .user ? "You" : (message.modelUsed ?? "Assistant"))
+                                          .font(theme.captionFont(weight: .semibold))
+                                          .foregroundStyle(message.role == .user ? palette.secondaryText : palette.accent)
+                                      Text(message.content.isEmpty && message.isStreaming ? "…" : message.content)
+                                          .font(theme.conversationFont(weight: message.role == .user ? .medium : .regular))
+                                          .foregroundStyle(palette.primaryText)
+                                          .textSelection(.enabled)
+                                  }
+                              }
+                          }
+                          .frame(maxWidth: StudioMetrics.readingColumnMaxWidth, alignment: .leading)
+                          .padding(28)
+                      }
+
+                      HStack(spacing: 10) {
+                          TextField("Write a message...", text: $draftPrompt, axis: .vertical)
+                              .textFieldStyle(.plain)
+                              .font(theme.conversationFont())
+                              .onSubmit {
+                                  let t = draftPrompt; draftPrompt = ""
+                                  appState.sendUserMessage(text: t, attachments: [])
+                              }
+                          Button {
+                              let t = draftPrompt; draftPrompt = ""
+                              appState.sendUserMessage(text: t, attachments: [])
+                          } label: {
+                              StudioIcon(.send, size: 13, color: Color.white)
+                                  .padding(7)
+                                  .background(RoundedRectangle(cornerRadius: 6).fill(palette.accent))
+                          }
+                          .buttonStyle(.plain)
+                      }
+                      .padding(12)
+                      .frame(maxWidth: StudioMetrics.readingColumnMaxWidth)
+                      .background(RoundedRectangle(cornerRadius: 8).fill(palette.elevatedSurface))
+                      .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.hairlineBorder, lineWidth: 1))
+                      .padding(20)
+                  }
+              }
+          }
+
+          public struct InspectorDrawerView: View {
+              @EnvironmentObject private var appState: AppState
+              @EnvironmentObject private var theme: ThemeManager
+              public let palette: StudioPalette
+
+              public var body: some View {
+                  guard let idx = appState.activeConversationIndex else { return AnyView(EmptyView()) }
+                  return AnyView(
+                      ScrollView {
+                          VStack(alignment: .leading, spacing: 14) {
+                              Text("Precision Dials").font(theme.bodyFont(weight: .semibold)).foregroundStyle(palette.primaryText)
+                              HStack {
+                                  Text("Temperature").font(theme.captionFont())
+                                  Spacer()
+                                  Text(String(format: "%.2f", appState.conversations[idx].dials.temperature)).font(theme.monoFont(size: 11))
+                              }
+                              Slider(value: $appState.conversations[idx].dials.temperature, in: 0.0...2.0, step: 0.05).tint(palette.accent)
+
+                              HStack {
+                                  Text("Top-P").font(theme.captionFont())
+                                  Spacer()
+                                  Text(String(format: "%.2f", appState.conversations[idx].dials.topP)).font(theme.monoFont(size: 11))
+                              }
+                              Slider(value: $appState.conversations[idx].dials.topP, in: 0.05...1.0, step: 0.05).tint(palette.accent)
+
+                              HStack {
+                                  Text("Min-P").font(theme.captionFont())
+                                  Spacer()
+                                  Text(String(format: "%.2f", appState.conversations[idx].dials.minP)).font(theme.monoFont(size: 11))
+                              }
+                              Slider(value: $appState.conversations[idx].dials.minP, in: 0.0...0.5, step: 0.01).tint(palette.accent)
+
+                              Picker("Context Window", selection: $appState.conversations[idx].dials.numCtx) {
+                                  Text("4k").tag(4096)
+                                  Text("8k").tag(8192)
+                                  Text("16k").tag(16384)
+                                  Text("32k").tag(32768)
+                                  Text("64k").tag(65536)
+                              }
+                              Picker("Thinking Mode", selection: $appState.conversations[idx].dials.thinkingMode) {
+                                  ForEach(ThinkingMode.allCases) { m in Text(m.label).tag(m) }
+                              }
+                              Picker("Output Format", selection: $appState.conversations[idx].dials.formatMode) {
+                                  ForEach(ResponseFormatMode.allCases) { f in Text(f.label).tag(f) }
+                              }
+                          }
+                          .padding(16)
+                      }
+                      .background(palette.cardSurface)
+                  )
+              }
+          }
+
+          public struct ModelsManagerView: View {
+              @EnvironmentObject private var appState: AppState
+              @EnvironmentObject private var theme: ThemeManager
+              public let palette: StudioPalette
+              @State private var pullInput: String = ""
+
+              public var body: some View {
+                  ScrollView {
+                      VStack(alignment: .leading, spacing: 20) {
+                          Text("Models & Hugging Face Direct Pull").font(theme.titleFont()).foregroundStyle(palette.primaryText)
+                          HStack {
+                              TextField("Paste Hugging Face URL (hf.co/user/repo) or model tag...", text: $pullInput)
+                                  .textFieldStyle(.roundedBorder)
+                              Button("Pull Model") {
+                                  appState.startOrResumeModelPull(rawIdentifier: pullInput)
+                                  pullInput = ""
+                              }
+                          }
+                          ForEach(appState.activePullTasks) { task in
+                              HStack {
+                                  Text(task.id).font(theme.monoFont(size: 12))
+                                  ProgressView(value: task.fractionCompleted)
+                                  Text(task.formattedProgress).font(theme.monoFont(size: 11))
+                              }
+                          }
+                          Divider()
+                          ForEach(appState.installedModels) { model in
+                              HStack {
+                                  Text(model.name).font(theme.bodyFont(weight: .semibold))
+                                  StudioPillBadge(model.formattedSize, palette: palette)
+                                  Spacer()
+                                  Button("Use in Chat") {
+                                      if let idx = appState.activeConversationIndex {
+                                          appState.conversations[idx].selectedModel = model.name
+                                          appState.selectedTab = .chat
+                                      }
+                                  }
+                                  Button("Pre-Warm RAM") { appState.prewarmModelIntoRAM(model.name) }
+                                  Button("Unload") { appState.ejectModelFromRAM(model.name) }
+                              }
+                              .padding(12)
+                              .background(RoundedRectangle(cornerRadius: 8).fill(palette.subtleSurface))
+                          }
+                      }
+                      .padding(28)
+                  }
+              }
+          }
+
+          public struct ModelBuilderView: View {
+              @EnvironmentObject private var appState: AppState
+              @EnvironmentObject private var theme: ThemeManager
+              public let palette: StudioPalette
+
+              public var body: some View {
+                  VStack(alignment: .leading, spacing: 16) {
+                      Text("Visual Model Builder").font(theme.titleFont()).foregroundStyle(palette.primaryText)
+                      TextField("New Model Name (e.g. custom-writer:latest)", text: $appState.builderDraft.newModelName).textFieldStyle(.roundedBorder)
+                      TextField("Base Model or .gguf Path", text: $appState.builderDraft.baseModelOrGGUFPath).textFieldStyle(.roundedBorder)
+                      TextEditor(text: $appState.builderDraft.systemPrompt).frame(height: 120).border(palette.hairlineBorder)
+                      Button("Compile & Save Reusable Model") { appState.buildCustomModelFromDraft() }
+                      Text(appState.builderDraft.renderedModelfilePreview()).font(theme.monoFont(size: 11)).foregroundStyle(palette.secondaryText)
+                      Spacer()
+                  }
+                  .padding(28)
+              }
+          }
+
+          public struct ServerControlView: View {
+              @EnvironmentObject private var appState: AppState
+              @EnvironmentObject private var theme: ThemeManager
+              public let palette: StudioPalette
+
+              public var body: some View {
+                  ScrollView {
+                      VStack(alignment: .leading, spacing: 16) {
+                          Text("Server Control Center").font(theme.titleFont()).foregroundStyle(palette.primaryText)
+                          Picker("KV Cache Compression (OLLAMA_KV_CACHE_TYPE)", selection: $appState.serverConfig.kvCacheType) {
+                              ForEach(KVCacheQuantizationType.allCases) { kv in Text(kv.label).tag(kv) }
+                          }
+                          Toggle("Enable Flash Attention (OLLAMA_FLASH_ATTENTION)", isOn: $appState.serverConfig.flashAttentionEnabled)
+                          TextField("Models Storage Folder (OLLAMA_MODELS)", text: $appState.serverConfig.modelsDirectoryPath).textFieldStyle(.roundedBorder)
+                          TextField("Allowed CORS Origins (OLLAMA_ORIGINS)", text: $appState.serverConfig.allowedOrigins).textFieldStyle(.roundedBorder)
+                          HStack {
+                              Button("Apply & Restart Engine") {
+                                  Task { await appState.processManager.restartServer(with: appState.serverConfig) }
+                              }
+                              Button("Stop Engine") { appState.processManager.stopServer() }
+                          }
+                      }
+                      .padding(28)
+                  }
+              }
+          }
+
+          public struct SettingsView: View {
+              @EnvironmentObject private var appState: AppState
+              @EnvironmentObject private var theme: ThemeManager
+              @Environment(\.dismiss) private var dismiss
+              public let palette: StudioPalette
+
+              public var body: some View {
+                  VStack(alignment: .leading, spacing: 16) {
+                      HStack {
+                          Text("Studio Themes & Typography").font(theme.titleFont())
+                          Spacer()
+                          Button("Done") { dismiss() }
+                      }
+                      Picker("Appearance", selection: $theme.appearancePreference) {
+                          ForEach(AppearancePreference.allCases) { a in Text(a.label).tag(a) }
+                      }
+                      Picker("Theme Palette", selection: $theme.selectedTheme) {
+                          ForEach(StudioThemeID.allCases) { t in Text(t.displayName).tag(t) }
+                      }
+                      Picker("Font Family", selection: $theme.selectedFont) {
+                          ForEach(StudioFontFamily.allCases) { f in Text(f.displayName).tag(f) }
+                      }
+                  }
+                  .padding(24)
+                  .frame(width: 480)
+              }
+          }
+          EOF
+
+          cat << 'EOF' > Sources/OllamaStudio/App/OllamaStudioApp.swift
+          import SwiftUI
+          import AppKit
+
+          @main
+          public struct OllamaStudioApp: App {
+              @StateObject private var appState = AppState()
+              @StateObject private var theme = ThemeManager()
+
+              public init() {
+                  NSWindow.allowsAutomaticWindowTabbing = false
+              }
+
+              public var body: some Scene {
+                  WindowGroup("Ollama Studio") {
+                      MainView()
+                          .environmentObject(appState)
+                          .environmentObject(theme)
+                          .frame(minWidth: 980, minHeight: 640)
+                  }
+                  .windowStyle(.hiddenTitleBar)
+                  .commands {
+                      CommandGroup(replacing: .newItem) {
+                          Button("New Conversation") { appState.createNewConversation() }
+                              .keyboardShortcut("n", modifiers: [.command])
+                      }
+                      CommandMenu("Workspace") {
+                          Button("Conversations") { appState.selectedTab = .chat }.keyboardShortcut("1", modifiers: [.command])
+                          Button("Models & RAM") { appState.selectedTab = .modelsAndRAM }.keyboardShortcut("2", modifiers: [.command])
+                          Button("Model Builder") { appState.selectedTab = .modelBuilder }.keyboardShortcut("3", modifiers: [.command])
+                          Button("Server Control") { appState.selectedTab = .serverControl }.keyboardShortcut("4", modifiers: [.command])
+                          Divider()
+                          Button("Toggle Dials Inspector") { appState.isInspectorDrawerOpen.toggle() }.keyboardShortcut("i", modifiers: [.command])
+                          Button("Studio Settings") { appState.isSettingsSheetOpen = true }.keyboardShortcut(",", modifiers: [.command])
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Compile Release ARM64 Binary
+        run: |
+          swift build -c release --arch arm64
+
+      - name: Package Native macOS .app Bundle
+        run: |
+          APP_NAME="Ollama Studio"
+          BUNDLE_DIR="build/${APP_NAME}.app"
+          rm -rf build
+          mkdir -p "${BUNDLE_DIR}/Contents/MacOS"
+          mkdir -p "${BUNDLE_DIR}/Contents/Resources"
+
+          cp ".build/arm64-apple-macosx/release/OllamaStudio" "${BUNDLE_DIR}/Contents/MacOS/OllamaStudio"
+          chmod +x "${BUNDLE_DIR}/Contents/MacOS/OllamaStudio"
+
+          cat << 'EOF' > "${BUNDLE_DIR}/Contents/Info.plist"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>
+              <string>OllamaStudio</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.ollamastudio.desktop</string>
+              <key>CFBundleName</key>
+              <string>Ollama Studio</string>
+              <key>CFBundleDisplayName</key>
+              <string>Ollama Studio</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>1.0.0</string>
+              <key>CFBundleVersion</key>
+              <string>100</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>14.0</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          codesign --force --deep --sign - "${BUNDLE_DIR}"
+
+      - name: Build Distributable macOS .dmg Installer
+        run: |
+          mkdir -p dmg_staging
+          cp -R "build/Ollama Studio.app" dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "Ollama Studio" \
+            -srcfolder dmg_staging \
+            -ov -format UDZO \
+            "OllamaStudio-macOS-AppleSilicon.dmg"
+
+      - name: Upload DMG Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OllamaStudio-macOS-DMG
+          path: OllamaStudio-macOS-AppleSilicon.dmg
+          retention-days: 30
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: "Ollama Studio v1.0.${{ github.run_number }} (macOS Apple Silicon)"
+          files: OllamaStudio-macOS-AppleSilicon.dmg
+          generate_release_notes: true
