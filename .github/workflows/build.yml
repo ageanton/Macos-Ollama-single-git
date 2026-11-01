@@ -1306,8 +1306,8 @@ jobs:
               @Published public var downloadTasks: [RegistryDownloadTask] = []
 
               // MARK: - Sub-Services
-              public let supervisor = LocalEngineSupervisor()
-              public let driveManager = ExternalStorageDriveManager()
+              @Published public var supervisor = LocalEngineSupervisor()
+              @Published public var driveManager = ExternalStorageDriveManager()
               private let vault = PersistenceVaultManager()
               private var streamingTask: Task<Void, Never>? = nil
 
