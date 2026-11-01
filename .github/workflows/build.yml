@@ -2672,7 +2672,7 @@ jobs:
 
                       // If external drive is connected and mounted, but Ollama returned 0 models because Ollama started before the drive mounted, restart Ollama with the external path
                       if tags.isEmpty && serverConfig.isUsingExternalDriveForModels && externalDriveStatus.isCurrentlyMountedAndWritable && !processManager.isManagedProcessRunning {
-                          await processManager.restartServerAndAwaitReady(with: &serverConfig, client: client)
+                          await processManager.restartServerAndAwaitReady(with: serverConfig, client: client)
                           self.installedModels = (try? await client.fetchInstalledModels(baseURL: baseURL)) ?? []
                       }
 
