@@ -5667,7 +5667,7 @@ jobs:
                               appState.serverConfig.enforceSafetyInvariants()
                               appState.persistVault()
                               Task {
-                                  await appState.processManager.restartServerAndAwaitReady(with: &appState.serverConfig, client: appState.client)
+                                  await appState.processManager.restartServerAndAwaitReady(with: appState.serverConfig, client: appState.client)
                                   await appState.refreshEngineStatus()
                               }
                           }
