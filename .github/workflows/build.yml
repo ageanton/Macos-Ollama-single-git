@@ -5502,7 +5502,7 @@ jobs:
                                           to: url.path,
                                           copyExistingFiles: copyExistingWhenMoving
                                       )
-                                      await appState.processManager.restartServerAndAwaitReady(with: &appState.serverConfig, client: appState.client)
+                                      await appState.processManager.restartServerAndAwaitReady(with: appState.serverConfig, client: appState.client)
                                       await appState.refreshEngineStatus()
                                   }
                               }
