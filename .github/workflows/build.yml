@@ -4739,41 +4739,52 @@ jobs:
           cp "AetherStudio/.build/arm64-apple-macosx/release/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
           chmod +x "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 
+          # Copy SwiftPM resource bundle if generated alongside executable
+          if [ -d "AetherStudio/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle" ]; then
+            cp -R "AetherStudio/.build/arm64-apple-macosx/release/${APP_NAME}_${APP_NAME}.bundle" "${APP_BUNDLE}/Contents/Resources/"
+          fi
+
           cp -R AetherStudio/Sources/AetherStudio/Resources/Fonts/* "${APP_BUNDLE}/Contents/Resources/Fonts/" 2>/dev/null || true
 
-          cat << EOF > "${APP_BUNDLE}/Contents/Info.plist"
+          # Write PkgInfo marker
+          printf "APPL????" > "${APP_BUNDLE}/Contents/PkgInfo"
+
+          # Write Info.plist and strip leading YAML indentation so <?xml starts at byte 0
+          cat << EOF | sed 's/^[[:space:]]*//' > "${APP_BUNDLE}/Contents/Info.plist"
           <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "[http://www.apple.com/DTDs/PropertyList-1.0.dtd](http://www.apple.com/DTDs/PropertyList-1.0.dtd)">
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
-              <key>CFBundleDevelopmentRegion</key>
-              <string>en</string>
-              <key>CFBundleExecutable</key>
-              <string>${APP_NAME}</string>
-              <key>CFBundleIdentifier</key>
-              <string>${BUNDLE_ID}</string>
-              <key>CFBundleInfoDictionaryVersion</key>
-              <string>6.0</string>
-              <key>CFBundleName</key>
-              <string>${DISPLAY_NAME}</string>
-              <key>CFBundleDisplayName</key>
-              <string>${DISPLAY_NAME}</string>
-              <key>CFBundlePackageType</key>
-              <string>APPL</string>
-              <key>CFBundleShortVersionString</key>
-              <string>${VERSION}</string>
-              <key>CFBundleVersion</key>
-              <string>${BUILD_NUMBER}</string>
-              <key>LSMinimumSystemVersion</key>
-              <string>14.0</string>
-              <key>NSHighResolutionCapable</key>
-              <true/>
-              <key>NSSupportsAutomaticGraphicsSwitching</key>
-              <true/>
+          <key>CFBundleDevelopmentRegion</key>
+          <string>en</string>
+          <key>CFBundleExecutable</key>
+          <string>${APP_NAME}</string>
+          <key>CFBundleIdentifier</key>
+          <string>${BUNDLE_ID}</string>
+          <key>CFBundleInfoDictionaryVersion</key>
+          <string>6.0</string>
+          <key>CFBundleName</key>
+          <string>${DISPLAY_NAME}</string>
+          <key>CFBundleDisplayName</key>
+          <string>${DISPLAY_NAME}</string>
+          <key>CFBundlePackageType</key>
+          <string>APPL</string>
+          <key>CFBundleShortVersionString</key>
+          <string>${VERSION}</string>
+          <key>CFBundleVersion</key>
+          <string>${BUILD_NUMBER}</string>
+          <key>LSMinimumSystemVersion</key>
+          <string>14.0</string>
+          <key>NSHighResolutionCapable</key>
+          <true/>
+          <key>NSPrincipalClass</key>
+          <string>NSApplication</string>
           </dict>
           </plist>
           EOF
 
+          plutil -lint "${APP_BUNDLE}/Contents/Info.plist"
+          xattr -cr "${APP_BUNDLE}"
           codesign --force --deep --sign - "${APP_BUNDLE}"
 
       - name: Package Compressed macOS Disk Image (.dmg) with Applications Symlink
