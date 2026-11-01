@@ -5512,7 +5512,7 @@ jobs:
                               appState.serverConfig.syncPathToUserDefaults()
                               appState.persistVault()
                               Task {
-                                  await appState.processManager.restartServerAndAwaitReady(with: &appState.serverConfig, client: appState.client)
+                                  await appState.processManager.restartServerAndAwaitReady(with: appState.serverConfig, client: appState.client)
                                   await appState.refreshEngineStatus()
                               }
                           }
@@ -5528,7 +5528,7 @@ jobs:
                                   appState.externalDriveStatus = appState.serverConfig.inspectStorageDriveStatus()
                                   appState.persistVault()
                                   Task {
-                                      await appState.processManager.restartServerAndAwaitReady(with: &appState.serverConfig, client: appState.client)
+                                      await appState.processManager.restartServerAndAwaitReady(with: appState.serverConfig, client: appState.client)
                                       await appState.refreshEngineStatus()
                                   }
                               }
