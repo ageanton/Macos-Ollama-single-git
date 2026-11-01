@@ -2210,3 +2210,2587 @@ jobs:
               }
           }
           EOF
+      - name: Generate AppKit Bridges, Liquid Glass Materials & Telemetry Views (GlassAndTelemetryComponents.swift)
+        run: |
+          cat << 'EOF' > AetherStudio/Sources/AetherStudio/Components/GlassAndTelemetryComponents.swift
+          import SwiftUI
+          import AppKit
+          import CoreText
+
+          // MARK: - Native NSVisualEffectView Bridge for Liquid Glass Depth
+          public struct LiquidGlassBackground: NSViewRepresentable {
+              public var material: NSVisualEffectView.Material
+              public var blendingMode: NSVisualEffectView.BlendingMode
+              public var state: NSVisualEffectView.State
+
+              public init(
+                  material: NSVisualEffectView.Material = .sidebar,
+                  blendingMode: NSVisualEffectView.BlendingMode = .behindWindow,
+                  state: NSVisualEffectView.State = .active
+              ) {
+                  self.material = material
+                  self.blendingMode = blendingMode
+                  self.state = state
+              }
+
+              public func makeNSView(context: Context) -> NSVisualEffectView {
+                  let view = NSVisualEffectView()
+                  view.material = material
+                  view.blendingMode = blendingMode
+                  view.state = state
+                  view.isEmphasized = true
+                  return view
+              }
+
+              public func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+                  nsView.material = material
+                  nsView.blendingMode = blendingMode
+                  nsView.state = state
+              }
+          }
+
+          // MARK: - Runtime Custom Font Registration (Inter & Plus Jakarta Sans)
+          public enum CustomFontRegistrar {
+              public static func registerBundledFonts() {
+                  guard let resourceURL = Bundle.main.resourceURL else { return }
+                  let fontDirs = [
+                      resourceURL.appendingPathComponent("Fonts"),
+                      resourceURL.appendingPathComponent("AetherStudio_AetherStudio.bundle/Contents/Resources/Fonts"),
+                      resourceURL
+                  ]
+                  for dir in fontDirs {
+                      guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
+                      for file in files where file.pathExtension.lowercased() == "ttf" || file.pathExtension.lowercased() == "otf" {
+                          CTFontManagerRegisterFontsForURL(file as CFURL, .process, nil)
+                      }
+                  }
+              }
+          }
+
+          // MARK: - Segmented Apple Silicon Unified Memory Bar
+          public struct UnifiedMemoryTelemetryBar: View {
+              public let snapshot: UnifiedMemorySnapshot
+              public let theme: AppThemeID
+
+              public var body: some View {
+                  VStack(alignment: .leading, spacing: 5) {
+                      HStack(spacing: 10) {
+                          Label("Unified Memory", systemImage: "memorychip.fill")
+                              .font(.system(size: 11, weight: .semibold))
+                              .foregroundColor(theme.primaryText)
+
+                          Spacer()
+
+                          Text(String(
+                              format: "Weights %.1f GB · KV %.2f GB · Free %.1f GB / %.0f GB",
+                              snapshot.weightsGB,
+                              snapshot.kvCacheGB,
+                              snapshot.headroomGB,
+                              snapshot.totalGB
+                          ))
+                          .font(.system(size: 11, weight: .medium, design: .monospaced))
+                          .monospacedDigit()
+                          .foregroundColor(theme.secondaryText)
+                      }
+
+                      GeometryReader { geo in
+                          let total = max(1.0, Double(snapshot.totalPhysicalRAMBytes))
+                          let sysWidth = CGFloat(Double(snapshot.systemAndOSWiredBytes) / total) * geo.size.width
+                          let weightWidth = CGFloat(Double(snapshot.modelWeightsResidentBytes) / total) * geo.size.width
+                          let kvWidth = CGFloat(Double(snapshot.kvCacheAllocatedBytes) / total) * geo.size.width
+
+                          ZStack(alignment: .leading) {
+                              RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                  .fill(theme.secondarySurface)
+
+                              HStack(spacing: 1.5) {
+                                  // System / OS Wired
+                                  RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                      .fill(Color.gray.opacity(0.48))
+                                      .frame(width: max(6, sysWidth))
+
+                                  // Model Weights
+                                  RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                      .fill(theme.accentColor)
+                                      .frame(width: max(4, weightWidth))
+
+                                  // KV Cache
+                                  RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                      .fill(Color.purple.opacity(0.85))
+                                      .frame(width: max(4, kvWidth))
+
+                                  Spacer(minLength: 0)
+                              }
+                          }
+                      }
+                      .frame(height: 7)
+                  }
+                  .padding(.horizontal, 12)
+                  .padding(.vertical, 8)
+                  .background(theme.elevatedCard.opacity(0.75))
+                  .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                  .overlay(
+                      RoundedRectangle(cornerRadius: 8, style: .continuous)
+                          .stroke(theme.specularBorder, lineWidth: 0.5)
+                  )
+              }
+          }
+
+          // MARK: - Live Streaming Velocity Sparkline
+          public struct StreamingVelocitySparkline: View {
+              public let samples: [Double]
+              public let accent: Color
+
+              public var body: some View {
+                  GeometryReader { geo in
+                      let maxVal = max(samples.max() ?? 60.0, 10.0)
+                      let minVal = min(samples.min() ?? 0.0, maxVal - 5.0)
+                      let span = max(1.0, maxVal - minVal)
+
+                      Path { path in
+                          guard samples.count > 1 else { return }
+                          for (idx, sample) in samples.enumerated() {
+                              let x = geo.size.width * CGFloat(idx) / CGFloat(samples.count - 1)
+                              let normY = (sample - minVal) / span
+                              let y = geo.size.height * (1.0 - CGFloat(normY))
+                              if idx == 0 {
+                                  path.move(to: CGPoint(x: x, y: y))
+                              } else {
+                                  path.addLine(to: CGPoint(x: x, y: y))
+                              }
+                          }
+                      }
+                      .stroke(accent, style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                  }
+                  .frame(width: 54, height: 15)
+              }
+          }
+
+          // MARK: - First-Class Code Block Container with Line Counter & 1-Click Actions
+          public struct EditorialCodeBlockView: View {
+              public let language: String
+              public let code: String
+              public let theme: AppThemeID
+              public let onOpenInArtifactPane: () -> Void
+
+              @State private var isCopied: Bool = false
+              @State private var isHovering: Bool = false
+
+              private var lines: [String] {
+                  code.trimmingCharacters(in: .newlines).components(separatedBy: .newlines)
+              }
+
+              public var body: some View {
+                  VStack(alignment: .leading, spacing: 0) {
+                      // Code Block Header
+                      HStack(spacing: 10) {
+                          HStack(spacing: 6) {
+                              Image(systemName: "chevron.left.forwardslash.chevron.right")
+                                  .font(.system(size: 10, weight: .bold))
+                                  .foregroundColor(theme.accentColor)
+                              Text(language.isEmpty ? "TEXT" : language.uppercased())
+                                  .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                  .foregroundColor(theme.primaryText)
+                          }
+                          .padding(.horizontal, 8)
+                          .padding(.vertical, 3)
+                          .background(theme.secondarySurface)
+                          .clipShape(Capsule())
+
+                          Text("\(lines.count) lines")
+                              .font(.system(size: 11, design: .monospaced))
+                              .monospacedDigit()
+                              .foregroundColor(theme.secondaryText)
+
+                          Spacer()
+
+                          Button(action: onOpenInArtifactPane) {
+                              Label("Open in Artifact Pane", systemImage: "sidebar.right")
+                                  .font(.system(size: 11, weight: .medium))
+                          }
+                          .buttonStyle(.plain)
+                          .foregroundColor(theme.secondaryText)
+
+                          Button(action: copyCodeToClipboard) {
+                              HStack(spacing: 4) {
+                                  Image(systemName: isCopied ? "checkmark.circle.fill" : "doc.on.doc")
+                                      .foregroundColor(isCopied ? .green : theme.primaryText)
+                                  Text(isCopied ? "Copied" : "Copy")
+                                      .font(.system(size: 11, weight: .medium))
+                              }
+                              .padding(.horizontal, 8)
+                              .padding(.vertical, 4)
+                              .background(theme.elevatedCard)
+                              .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                          }
+                          .buttonStyle(.plain)
+                      }
+                      .padding(.horizontal, 14)
+                      .padding(.vertical, 8)
+                      .background(theme.secondarySurface.opacity(0.85))
+
+                      Divider().opacity(0.25)
+
+                      // Horizontal scrolling code surface with line numbers
+                      ScrollView(.horizontal, showsIndicators: true) {
+                          HStack(alignment: .top, spacing: 14) {
+                              VStack(alignment: .trailing, spacing: 4) {
+                                  ForEach(lines.indices, id: \.self) { idx in
+                                      Text("\(idx + 1)")
+                                          .font(.system(size: 12.5, weight: .regular, design: .monospaced))
+                                          .monospacedDigit()
+                                          .foregroundColor(theme.secondaryText.opacity(0.45))
+                                  }
+                              }
+                              .padding(.vertical, 12)
+                              .padding(.leading, 12)
+
+                              Divider().opacity(0.18)
+
+                              VStack(alignment: .leading, spacing: 4) {
+                                  ForEach(lines.indices, id: \.self) { idx in
+                                      Text(lines[idx].isEmpty ? " " : lines[idx])
+                                          .font(.system(size: 13.0, weight: .regular, design: .monospaced))
+                                          .foregroundColor(theme.primaryText)
+                                          .textSelection(.enabled)
+                                  }
+                              }
+                              .padding(.vertical, 12)
+                              .padding(.trailing, 18)
+                          }
+                      }
+                      .background(theme.codeBlockBackground)
+                  }
+                  .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                  .overlay(
+                      RoundedRectangle(cornerRadius: 10, style: .continuous)
+                          .stroke(theme.specularBorder, lineWidth: 0.75)
+                  )
+                  .onHover { hovering in
+                      isHovering = hovering
+                  }
+              }
+
+              private func copyCodeToClipboard() {
+                  NSPasteboard.general.clearContents()
+                  NSPasteboard.general.setString(code, forType: .string)
+                  withAnimation(.easeInOut(duration: 0.18)) {
+                      isCopied = true
+                  }
+                  DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                      withAnimation(.easeInOut(duration: 0.18)) {
+                          isCopied = false
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Generate Liquid Glass Sidebar with Pill Selection & Context Menus (SidebarNavigationView.swift)
+        run: |
+          cat << 'EOF' > AetherStudio/Sources/AetherStudio/Views/SidebarNavigationView.swift
+          import SwiftUI
+
+          public struct SidebarNavigationView: View {
+              @ObservedObject public var store: WorkstationStore
+              @State private var renamingSessionID: UUID? = nil
+              @State private var renameDraft: String = ""
+
+              private var theme: AppThemeID { store.activeTheme }
+
+              private var filteredSessions: [ConversationSession] {
+                  store.sessions.filter { session in
+                      if store.sidebarFilterScope == "Trash" {
+                          guard session.isTrashed else { return false }
+                      } else {
+                          guard !session.isTrashed else { return false }
+                      }
+                      if store.sidebarFilterScope == "Pinned" && !session.isPinned {
+                          return false
+                      }
+                      if store.sidebarFilterScope == "Artifacts" && session.artifacts.isEmpty {
+                          return false
+                      }
+                      let query = store.sidebarSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                      guard !query.isEmpty else { return true }
+                      if session.title.lowercased().contains(query) { return true }
+                      return session.nodes.values.contains { $0.content.lowercased().contains(query) }
+                  }
+              }
+
+              public var body: some View {
+                  ZStack {
+                      LiquidGlassBackground(material: .sidebar, blendingMode: .behindWindow)
+                          .ignoresSafeArea()
+
+                      VStack(alignment: .leading, spacing: 10) {
+                          // Top Search & Quick Create Bar
+                          VStack(spacing: 8) {
+                              HStack(spacing: 8) {
+                                  HStack(spacing: 6) {
+                                      Image(systemName: "magnifyingglass")
+                                          .font(.system(size: 12, weight: .medium))
+                                          .foregroundColor(theme.secondaryText)
+                                      TextField("Search chats & messages...", text: $store.sidebarSearchQuery)
+                                          .textFieldStyle(.plain)
+                                          .font(.system(size: 12.5))
+                                          .foregroundColor(theme.primaryText)
+                                      if !store.sidebarSearchQuery.isEmpty {
+                                          Button {
+                                              store.sidebarSearchQuery = ""
+                                          } label: {
+                                              Image(systemName: "xmark.circle.fill")
+                                                  .font(.system(size: 11))
+                                                  .foregroundColor(theme.secondaryText)
+                                          }
+                                          .buttonStyle(.plain)
+                                      }
+                                  }
+                                  .padding(.horizontal, 10)
+                                  .padding(.vertical, 6)
+                                  .background(theme.elevatedCard.opacity(0.65))
+                                  .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                  .overlay(
+                                      RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                          .stroke(theme.specularBorder, lineWidth: 0.5)
+                                  )
+
+                                  Button(action: store.createNewSession) {
+                                      Image(systemName: "square.and.pencil")
+                                          .font(.system(size: 13, weight: .semibold))
+                                          .foregroundColor(theme.primaryText)
+                                          .frame(width: 28, height: 28)
+                                          .background(theme.elevatedCard.opacity(0.8))
+                                          .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                  }
+                                  .buttonStyle(.plain)
+                                  .help("New Conversation (Cmd+N)")
+                              }
+
+                              // Inline Filter Scope Pills
+                              HStack(spacing: 4) {
+                                  ForEach(["All", "Pinned", "Artifacts", "Trash"], id: \.self) { scope in
+                                      let isSelected = store.sidebarFilterScope == scope
+                                      Button {
+                                          withAnimation(.easeOut(duration: 0.16)) {
+                                              store.sidebarFilterScope = scope
+                                          }
+                                      } label: {
+                                          Text(scope)
+                                              .font(.system(size: 11, weight: isSelected ? .semibold : .medium))
+                                              .foregroundColor(isSelected ? theme.primaryText : theme.secondaryText)
+                                              .padding(.horizontal, 8)
+                                              .padding(.vertical, 4)
+                                              .background(
+                                                  RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                      .fill(isSelected ? theme.accentColor.opacity(0.22) : Color.clear)
+                                              )
+                                      }
+                                      .buttonStyle(.plain)
+                                  }
+                                  Spacer()
+                              }
+                          }
+                          .padding(.horizontal, 12)
+                          .padding(.top, 10)
+
+                          ScrollView {
+                              VStack(alignment: .leading, spacing: 16) {
+                                  // Section 1: Conversations
+                                  VStack(alignment: .leading, spacing: 3) {
+                                      HStack {
+                                          Text(store.sidebarFilterScope == "Trash" ? "RECOVERABLE TRASH" : "CONVERSATIONS")
+                                              .font(.system(size: 10.5, weight: .bold))
+                                              .tracking(0.6)
+                                              .foregroundColor(theme.secondaryText.opacity(0.8))
+                                          Spacer()
+                                          if store.sidebarFilterScope == "Trash" && !filteredSessions.isEmpty {
+                                              Button("Empty Trash") {
+                                                  store.emptyTrashPermanently()
+                                              }
+                                              .font(.system(size: 10.5, weight: .semibold))
+                                              .foregroundColor(.red)
+                                              .buttonStyle(.plain)
+                                          }
+                                      }
+                                      .padding(.horizontal, 14)
+
+                                      ForEach(filteredSessions) { session in
+                                          sidebarSessionPillRow(session)
+                                      }
+                                  }
+
+                                  // Section 2: Project Folders
+                                  VStack(alignment: .leading, spacing: 3) {
+                                      Text("PROJECT WORKSPACES")
+                                          .font(.system(size: 10.5, weight: .bold))
+                                          .tracking(0.6)
+                                          .foregroundColor(theme.secondaryText.opacity(0.8))
+                                          .padding(.horizontal, 14)
+
+                                      ForEach(store.folders) { folder in
+                                          HStack(spacing: 8) {
+                                              Image(systemName: folder.icon)
+                                                  .font(.system(size: 12, weight: .medium))
+                                                  .foregroundColor(theme.accentColor)
+                                                  .frame(width: 18)
+                                              Text(folder.name)
+                                                  .font(.system(size: 12.5, weight: .medium))
+                                                  .foregroundColor(theme.primaryText)
+                                              Spacer()
+                                              Text("\(store.sessions.filter { $0.folderID == folder.id && !$0.isTrashed }.count)")
+                                                  .font(.system(size: 11, design: .monospaced))
+                                                  .monospacedDigit()
+                                                  .foregroundColor(theme.secondaryText)
+                                          }
+                                          .padding(.horizontal, 10)
+                                          .padding(.vertical, 6)
+                                          .padding(.horizontal, 8)
+                                      }
+                                  }
+
+                                  // Section 3: One-Click Parameter Presets
+                                  VStack(alignment: .leading, spacing: 3) {
+                                      Text("GENERATION PRESETS")
+                                          .font(.system(size: 10.5, weight: .bold))
+                                          .tracking(0.6)
+                                          .foregroundColor(theme.secondaryText.opacity(0.8))
+                                          .padding(.horizontal, 14)
+
+                                      ForEach(store.presets) { preset in
+                                          Button {
+                                              if let idx = store.sessions.firstIndex(where: { $0.id == store.selectedSessionID }) {
+                                                  store.sessions[idx].parameters = preset.parameters
+                                                  store.sessions[idx].systemPrompt = preset.systemPrompt
+                                                  store.recalculateHardwareTelemetry()
+                                              }
+                                          } label: {
+                                              HStack(spacing: 8) {
+                                                  Image(systemName: preset.icon)
+                                                      .font(.system(size: 12))
+                                                      .foregroundColor(theme.accentColor)
+                                                      .frame(width: 18)
+                                                  VStack(alignment: .leading, spacing: 1) {
+                                                      Text(preset.name)
+                                                          .font(.system(size: 12, weight: .medium))
+                                                          .foregroundColor(theme.primaryText)
+                                                      Text("T \(String(format: "%.2f", preset.parameters.temperature)) · Top-P \(String(format: "%.2f", preset.parameters.topP))")
+                                                          .font(.system(size: 10, design: .monospaced))
+                                                          .monospacedDigit()
+                                                          .foregroundColor(theme.secondaryText)
+                                                  }
+                                                  Spacer()
+                                              }
+                                              .padding(.horizontal, 10)
+                                              .padding(.vertical, 5)
+                                              .background(
+                                                  RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                                      .fill(Color.clear)
+                                              )
+                                          }
+                                          .buttonStyle(.plain)
+                                          .padding(.horizontal, 8)
+                                      }
+                                  }
+                              }
+                              .padding(.vertical, 6)
+                          }
+
+                          Spacer(minLength: 0)
+
+                          // External Drive Hardware Alert Banner if Unmounted
+                          if let alert = store.driveManager.disconnectionAlertMessage {
+                              HStack(alignment: .top, spacing: 8) {
+                                  Image(systemName: "externaldrive.trianglebadge.exclamationmark")
+                                      .foregroundColor(.orange)
+                                  Text(alert)
+                                      .font(.system(size: 10.5))
+                                      .foregroundColor(theme.primaryText)
+                                      .lineLimit(3)
+                              }
+                              .padding(10)
+                              .background(Color.orange.opacity(0.15))
+                              .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                              .padding(.horizontal, 12)
+                          }
+
+                          Divider().opacity(0.2)
+
+                          // Bottom Workstation Controls: Command Palette, Quick Ask, Settings
+                          HStack(spacing: 8) {
+                              Button {
+                                  store.isSettingsModalPresented = true
+                              } label: {
+                                  HStack(spacing: 6) {
+                                      Image(systemName: "slider.horizontal.2.square")
+                                          .font(.system(size: 13))
+                                      Text("Workstation Settings")
+                                          .font(.system(size: 12, weight: .medium))
+                                  }
+                                  .foregroundColor(theme.primaryText)
+                                  .padding(.horizontal, 10)
+                                  .padding(.vertical, 6)
+                                  .background(theme.elevatedCard.opacity(0.65))
+                                  .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                              }
+                              .buttonStyle(.plain)
+
+                              Spacer()
+
+                              Button {
+                                  store.isCommandPalettePresented.toggle()
+                              } label: {
+                                  Text("⌘K")
+                                      .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                      .foregroundColor(theme.secondaryText)
+                                      .padding(.horizontal, 7)
+                                      .padding(.vertical, 5)
+                                      .background(theme.elevatedCard.opacity(0.65))
+                                      .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                              }
+                              .buttonStyle(.plain)
+                              .help("Open Command Palette (Cmd+K)")
+                          }
+                          .padding(.horizontal, 12)
+                          .padding(.bottom, 12)
+                      }
+                  }
+                  .overlay(alignment: .trailing) {
+                      Rectangle()
+                          .fill(theme.specularBorder)
+                          .frame(width: 0.5)
+                          .ignoresSafeArea()
+                  }
+              }
+
+              @ViewBuilder
+              private func sidebarSessionPillRow(_ session: ConversationSession) -> some View {
+                  let isSelected = store.selectedSessionID == session.id
+                  Button {
+                      withAnimation(.easeOut(duration: 0.16)) {
+                          store.selectedSessionID = session.id
+                      }
+                  } label: {
+                      HStack(spacing: 8) {
+                          Image(systemName: session.isPinned ? "pin.fill" : "bubble.left.and.text.bubble.right")
+                              .font(.system(size: 11.5, weight: .medium))
+                              .foregroundColor(isSelected ? theme.accentColor : theme.secondaryText)
+                              .frame(width: 16)
+
+                          if renamingSessionID == session.id {
+                              TextField("Session Title", text: $renameDraft, onCommit: {
+                                  if let idx = store.sessions.firstIndex(where: { $0.id == session.id }) {
+                                      store.sessions[idx].title = renameDraft
+                                  }
+                                  renamingSessionID = nil
+                              })
+                              .textFieldStyle(.plain)
+                              .font(.system(size: 12.5, weight: .semibold))
+                              .foregroundColor(theme.primaryText)
+                          } else {
+                              Text(session.title)
+                                  .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
+                                  .foregroundColor(isSelected ? theme.primaryText : theme.primaryText.opacity(0.85))
+                                  .lineLimit(1)
+                          }
+
+                          Spacer()
+
+                          if !session.artifacts.isEmpty {
+                              Text("\(session.artifacts.count)")
+                                  .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                  .monospacedDigit()
+                                  .foregroundColor(theme.accentColor)
+                                  .padding(.horizontal, 5)
+                                  .padding(.vertical, 1.5)
+                                  .background(theme.accentColor.opacity(0.15))
+                                  .clipShape(Capsule())
+                          }
+                      }
+                      // Inset rounded-rectangle highlight pill (7pt corner radius)
+                      .padding(.horizontal, 10)
+                      .padding(.vertical, 6.5)
+                      .background(
+                          RoundedRectangle(cornerRadius: 7, style: .continuous)
+                              .fill(isSelected ? theme.accentColor.opacity(0.18) : Color.clear)
+                      )
+                      .overlay(
+                          RoundedRectangle(cornerRadius: 7, style: .continuous)
+                              .stroke(isSelected ? theme.accentColor.opacity(0.35) : Color.clear, lineWidth: 0.5)
+                      )
+                  }
+                  .buttonStyle(.plain)
+                  .padding(.horizontal, 8)
+                  .contextMenu {
+                      Button("Rename Session") {
+                          renameDraft = session.title
+                          renamingSessionID = session.id
+                      }
+                      Button(session.isPinned ? "Unpin Session" : "Pin Session") {
+                          if let idx = store.sessions.firstIndex(where: { $0.id == session.id }) {
+                              store.sessions[idx].isPinned.toggle()
+                          }
+                      }
+                      Button("Duplicate Branch Ledger") {
+                          store.duplicateSession(session.id)
+                      }
+                      Menu("Move to Workspace Folder") {
+                          ForEach(store.folders) { folder in
+                              Button(folder.name) {
+                                  if let idx = store.sessions.firstIndex(where: { $0.id == session.id }) {
+                                      store.sessions[idx].folderID = folder.id
+                                  }
+                              }
+                          }
+                      }
+                      Divider()
+                      if session.isTrashed {
+                          Button("Restore from Trash") {
+                              store.restoreSessionFromTrash(session.id)
+                          }
+                          Button("Delete Permanently", role: .destructive) {
+                              store.permanentlyDeleteSession(session.id)
+                          }
+                      } else {
+                          Button("Move to Trash", role: .destructive) {
+                              store.moveSessionToTrash(session.id)
+                          }
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Generate Editorial Conversation Stream, Thinking Accordion & Branch Pagination (EditorialConversationView.swift)
+        run: |
+          cat << 'EOF' > AetherStudio/Sources/AetherStudio/Views/EditorialConversationView.swift
+          import SwiftUI
+
+          public struct EditorialConversationView: View {
+              @ObservedObject public var store: WorkstationStore
+              @State private var userScrolledUpDuringStream: Bool = false
+              @State private var editingMessageNodeID: UUID? = nil
+              @State private var editMessageDraft: String = ""
+
+              private var theme: AppThemeID { store.activeTheme }
+              private var typo: TypographyConfiguration { store.typography }
+
+              public var body: some View {
+                  ZStack(alignment: .bottom) {
+                      // Ambient Model Family Radial Lighting during active generation
+                      if store.isStreamingGeneration {
+                          RadialGradient(
+                              colors: [store.activeModelDescriptor.ambientHue.opacity(0.14), Color.clear],
+                              center: .bottom,
+                              startRadius: 30,
+                              endRadius: 520
+                          )
+                          .ignoresSafeArea()
+                          .allowsHitTesting(false)
+                      }
+
+                      VStack(spacing: 0) {
+                          // Top Hardware & Residency Telemetry Bar anchored in viewport
+                          UnifiedMemoryTelemetryBar(snapshot: store.memorySnapshot, theme: theme)
+                              .padding(.horizontal, 20)
+                              .padding(.top, 8)
+                              .padding(.bottom, 4)
+
+                          if let session = store.activeSession, !session.activeBranchThread.isEmpty {
+                              ScrollViewReader { proxy in
+                                  ScrollView {
+                                      VStack(alignment: .center, spacing: 22) {
+                                          ForEach(session.activeBranchThread) { node in
+                                              messageRowView(node: node, session: session)
+                                                  .id(node.id)
+                                          }
+                                          Color.clear
+                                              .frame(height: 16)
+                                              .id("STREAM_BOTTOM_ANCHOR")
+                                      }
+                                      .padding(.horizontal, 28)
+                                      .padding(.top, 18)
+                                      .padding(.bottom, 28)
+                                      .frame(maxWidth: .infinity)
+                                  }
+                                  .simultaneousGesture(
+                                      DragGesture().onChanged { value in
+                                          if value.translation.height > 12 && store.isStreamingGeneration {
+                                              userScrolledUpDuringStream = true
+                                          }
+                                      }
+                                  )
+                                  .onChange(of: store.liveElapsedSeconds) { _, _ in
+                                      if store.isStreamingGeneration && !userScrolledUpDuringStream {
+                                          withAnimation(.easeOut(duration: 0.12)) {
+                                              proxy.scrollTo("STREAM_BOTTOM_ANCHOR", anchor: .bottom)
+                                          }
+                                      }
+                                  }
+                                  .overlay(alignment: .bottomTrailing) {
+                                      if userScrolledUpDuringStream {
+                                          Button {
+                                              userScrolledUpDuringStream = false
+                                              withAnimation(.easeOut(duration: 0.2)) {
+                                                  proxy.scrollTo("STREAM_BOTTOM_ANCHOR", anchor: .bottom)
+                                              }
+                                          } label: {
+                                              Label("Jump to Latest Stream", systemImage: "arrow.down.circle.fill")
+                                                  .font(.system(size: 11.5, weight: .semibold))
+                                                  .foregroundColor(theme.primaryText)
+                                                  .padding(.horizontal, 12)
+                                                  .padding(.vertical, 7)
+                                                  .background(theme.elevatedCard)
+                                                  .clipShape(Capsule())
+                                                  .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+                                          }
+                                          .buttonStyle(.plain)
+                                          .padding(20)
+                                      }
+                                  }
+                              }
+                          } else {
+                              emptyStateTeachingCanvas
+                          }
+
+                          // Progressive Disclosure Composer Bar anchored at bottom
+                          ProgressiveComposerBar(store: store)
+                              .padding(.horizontal, 24)
+                              .padding(.bottom, 16)
+                      }
+                  }
+                  .background(theme.canvasBackground)
+              }
+
+              // MARK: - Empty State That Teaches (Starter Pills & Active Model Badge)
+              private var emptyStateTeachingCanvas: some View {
+                  VStack(spacing: 22) {
+                      Spacer()
+
+                      VStack(spacing: 10) {
+                          ZStack {
+                              Circle()
+                                  .fill(store.activeModelDescriptor.ambientHue.opacity(0.15))
+                                  .frame(width: 56, height: 56)
+                              Image(systemName: "sparkles.rectangle.stack.fill")
+                                  .font(.system(size: 24, weight: .semibold))
+                                  .foregroundColor(theme.accentColor)
+                          }
+
+                          Text("Aether Studio Workstation")
+                              .font(typo.font(size: 23, weight: .semibold))
+                              .foregroundColor(theme.primaryText)
+
+                          HStack(spacing: 8) {
+                              Circle()
+                                  .fill(store.activeModelDescriptor.residency == .activeInUnifiedRAM ? Color.green : Color.orange)
+                                  .frame(width: 7, height: 7)
+                              Text("\(store.activeModelDescriptor.displayName) · \(store.activeModelDescriptor.residency.rawValue)")
+                                  .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                  .foregroundColor(theme.secondaryText)
+                          }
+                      }
+
+                      // Starter Prompt Pills
+                      VStack(spacing: 10) {
+                          HStack(spacing: 10) {
+                              starterPromptPill(
+                                  icon: "cpu.fill",
+                                  title: "Audit Metal KV-Cache Footprint",
+                                  prompt: "Calculate the exact KV cache footprint for a 32B model at 32K context with Q8_0 cache quantization and write a Swift 6 telemetry monitor."
+                              )
+                              starterPromptPill(
+                                  icon: "brain.head.profile",
+                                  title: "First-Principles System Design",
+                                  prompt: "Reason step-by-step from first principles to design a lock-free multi-producer ring buffer in Swift 6."
+                              )
+                          }
+                          HStack(spacing: 10) {
+                              starterPromptPill(
+                                  icon: "square.split.2x1.fill",
+                                  title: "Launch Side-by-Side Model Arena",
+                                  prompt: "Compare DeepSeek R1 14B and Qwen 2.5 Coder 32B on implementing an actor-isolated SQLite write-ahead log."
+                              )
+                              starterPromptPill(
+                                  icon: "doc.text.magnifyingglass",
+                                  title: "Strict JSON Schema Enforcement",
+                                  prompt: "Generate a deterministic JSON schema and Swift Codable parser for hardware thermal telemetry events."
+                              )
+                          }
+                      }
+                      .frame(maxWidth: 680)
+
+                      Spacer()
+                  }
+                  .frame(maxWidth: .infinity, maxHeight: .infinity)
+              }
+
+              private func starterPromptPill(icon: String, title: String, prompt: String) -> some View {
+                  Button {
+                      store.sendActivePrompt(customPrompt: prompt)
+                  } label: {
+                      HStack(spacing: 10) {
+                          Image(systemName: icon)
+                              .font(.system(size: 14, weight: .semibold))
+                              .foregroundColor(theme.accentColor)
+                              .frame(width: 26, height: 26)
+                              .background(theme.accentColor.opacity(0.14))
+                              .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                          VStack(alignment: .leading, spacing: 2) {
+                              Text(title)
+                                  .font(.system(size: 12.5, weight: .semibold))
+                                  .foregroundColor(theme.primaryText)
+                              Text(prompt)
+                                  .font(.system(size: 11))
+                                  .foregroundColor(theme.secondaryText)
+                                  .lineLimit(1)
+                          }
+                          Spacer()
+                      }
+                      .padding(12)
+                      .frame(maxWidth: .infinity)
+                      .background(theme.elevatedCard)
+                      .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                      .overlay(
+                          RoundedRectangle(cornerRadius: 10, style: .continuous)
+                              .stroke(theme.specularBorder, lineWidth: 0.6)
+                      )
+                  }
+                  .buttonStyle(.plain)
+              }
+
+              // MARK: - Editorial Message Node (User vs Assistant with Branching `< x / y >`)
+              @ViewBuilder
+              private func messageRowView(node: ConversationMessageNode, session: ConversationSession) -> some View {
+                  let siblingMeta = session.siblingInfo(for: node.id)
+
+                  VStack(alignment: .leading, spacing: 10) {
+                      // Header Metadata & Non-Destructive Branch Pagination (< x / y >)
+                      HStack(spacing: 8) {
+                          Image(systemName: node.role == .user ? "person.crop.circle.fill" : "sparkles")
+                              .font(.system(size: 12, weight: .semibold))
+                              .foregroundColor(node.role == .user ? theme.secondaryText : theme.accentColor)
+
+                          Text(node.role == .user ? "YOU" : node.modelUsed.uppercased())
+                              .font(.system(size: 11, weight: .bold, design: .monospaced))
+                              .tracking(0.5)
+                              .foregroundColor(theme.secondaryText)
+
+                          if siblingMeta.totalCount > 1 {
+                              HStack(spacing: 4) {
+                                  Button {
+                                      store.switchBranchVersion(forNodeID: node.id, delta: -1)
+                                  } label: {
+                                      Image(systemName: "chevron.left")
+                                          .font(.system(size: 9.5, weight: .bold))
+                                  }
+                                  .buttonStyle(.plain)
+                                  .disabled(siblingMeta.currentIndex == 0)
+
+                                  Text("\(siblingMeta.currentIndex + 1) / \(siblingMeta.totalCount)")
+                                      .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                                      .monospacedDigit()
+
+                                  Button {
+                                      store.switchBranchVersion(forNodeID: node.id, delta: 1)
+                                  } label: {
+                                      Image(systemName: "chevron.right")
+                                          .font(.system(size: 9.5, weight: .bold))
+                                  }
+                                  .buttonStyle(.plain)
+                                  .disabled(siblingMeta.currentIndex >= siblingMeta.totalCount - 1)
+                              }
+                              .padding(.horizontal, 7)
+                              .padding(.vertical, 2)
+                              .background(theme.secondarySurface)
+                              .clipShape(Capsule())
+                              .foregroundColor(theme.primaryText)
+                          }
+
+                          Spacer()
+
+                          // Action Controls: Branching Edit or Regenerate
+                          if node.role == .user {
+                              Button {
+                                  editMessageDraft = node.content
+                                  editingMessageNodeID = node.id
+                              } label: {
+                                  Label("Edit Branch", systemImage: "arrow.triangle.branch")
+                                      .font(.system(size: 11))
+                                      .foregroundColor(theme.secondaryText)
+                              }
+                              .buttonStyle(.plain)
+                          } else {
+                              Button {
+                                  store.regenerateAssistantBranch(forAssistantNodeID: node.id)
+                              } label: {
+                                  Label("Branch Retry", systemImage: "arrow.clockwise")
+                                      .font(.system(size: 11))
+                                      .foregroundColor(theme.secondaryText)
+                              }
+                              .buttonStyle(.plain)
+                          }
+                      }
+
+                      // Attachment Chips if present
+                      if !node.attachments.isEmpty {
+                          ScrollView(.horizontal, showsIndicators: false) {
+                              HStack(spacing: 8) {
+                                  ForEach(node.attachments) { att in
+                                      HStack(spacing: 6) {
+                                          Image(systemName: "doc.text.fill")
+                                              .foregroundColor(theme.accentColor)
+                                          Text("\(att.title) · ~\(att.tokenEstimate) tokens")
+                                              .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                              .monospacedDigit()
+                                      }
+                                      .padding(.horizontal, 10)
+                                      .padding(.vertical, 5)
+                                      .background(theme.secondarySurface)
+                                      .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                  }
+                              }
+                          }
+                      }
+
+                      // Collapsible Dual-Channel Thinking & Reasoning Reflection Block
+                      if !node.thinkingTrace.isEmpty || !node.isThinkingComplete {
+                          thinkingAccordionBlock(for: node)
+                      }
+
+                      // Main Editorial Content or Branch Editor
+                      if editingMessageNodeID == node.id {
+                          VStack(alignment: .leading, spacing: 8) {
+                              TextEditor(text: $editMessageDraft)
+                                  .font(typo.font(size: CGFloat(typo.baseFontSize)))
+                                  .frame(minHeight: 70)
+                                  .padding(8)
+                                  .background(theme.secondarySurface)
+                                  .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                              HStack {
+                                  Button("Cancel") {
+                                      editingMessageNodeID = nil
+                                  }
+                                  .buttonStyle(.plain)
+                                  .foregroundColor(theme.secondaryText)
+
+                                  Button("Save & Fork New Branch") {
+                                      let updated = editMessageDraft
+                                      editingMessageNodeID = nil
+                                      store.createEditedMessageBranch(originalNodeID: node.id, updatedText: updated)
+                                  }
+                                  .buttonStyle(.borderedProminent)
+                              }
+                          }
+                      } else {
+                          renderStructuredMarkdownAndCode(content: node.content)
+                      }
+
+                      // Tabular Streaming Telemetry Footer for Assistant Responses
+                      if node.role == .assistant, let metrics = node.metrics {
+                          HStack(spacing: 14) {
+                              HStack(spacing: 4) {
+                                  Image(systemName: "bolt.fill")
+                                      .font(.system(size: 10))
+                                      .foregroundColor(theme.accentColor)
+                                  Text(String(format: "%.1f tok/s", metrics.tokensPerSecond))
+                              }
+                              Text(String(format: "TTFT %.0f ms", metrics.timeToFirstTokenMs))
+                              Text(String(format: "Total %.2fs", metrics.totalGenerationDurationSec))
+                              Text("\(metrics.completionTokens) tokens")
+
+                              if !metrics.sparklineSamples.isEmpty {
+                                  StreamingVelocitySparkline(samples: metrics.sparklineSamples, accent: theme.accentColor)
+                              }
+                              Spacer()
+                          }
+                          .font(.system(size: 11, weight: .medium, design: .monospaced))
+                          .monospacedDigit()
+                          .foregroundColor(theme.secondaryText.opacity(0.85))
+                          .padding(.top, 4)
+                      }
+                  }
+                  .padding(16)
+                  .frame(maxWidth: CGFloat(typo.comfortableReadingWidth), alignment: .leading)
+                  .background(
+                      RoundedRectangle(cornerRadius: 12, style: .continuous)
+                          .fill(node.role == .user ? theme.secondarySurface.opacity(0.65) : theme.elevatedCard.opacity(0.45))
+                  )
+                  .overlay(alignment: .leading) {
+                      if node.role == .user {
+                          RoundedRectangle(cornerRadius: 2)
+                              .fill(theme.accentColor)
+                              .frame(width: 3)
+                              .padding(.vertical, 10)
+                      }
+                  }
+                  .overlay(
+                      RoundedRectangle(cornerRadius: 12, style: .continuous)
+                          .stroke(theme.specularBorder, lineWidth: 0.5)
+                  )
+              }
+
+              @ViewBuilder
+              private func thinkingAccordionBlock(for node: ConversationMessageNode) -> some View {
+                  VStack(alignment: .leading, spacing: 6) {
+                      Button {
+                          guard let sIdx = store.sessions.firstIndex(where: { $0.id == store.selectedSessionID }),
+                                var target = store.sessions[sIdx].nodes[node.id] else { return }
+                          withAnimation(.easeOut(duration: 0.18)) {
+                              target.isThinkingExpanded.toggle()
+                              store.sessions[sIdx].nodes[node.id] = target
+                          }
+                      } label: {
+                          HStack(spacing: 8) {
+                              Image(systemName: node.isThinkingComplete ? "brain" : "rays")
+                                  .font(.system(size: 11.5, weight: .semibold))
+                                  .foregroundColor(theme.accentColor)
+
+                              Text(node.isThinkingComplete
+                                   ? String(format: "Reasoned for %.1fs", node.metrics?.thinkingDurationSec ?? 1.1)
+                                   : String(format: "Deliberating... %.1fs", store.liveElapsedSeconds))
+                                  .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                                  .monospacedDigit()
+                                  .foregroundColor(theme.secondaryText)
+
+                              Spacer()
+
+                              Image(systemName: node.isThinkingExpanded ? "chevron.up" : "chevron.down")
+                                  .font(.system(size: 10, weight: .bold))
+                                  .foregroundColor(theme.secondaryText)
+                          }
+                          .padding(.horizontal, 12)
+                          .padding(.vertical, 7)
+                          .background(theme.secondarySurface.opacity(0.8))
+                          .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                      }
+                      .buttonStyle(.plain)
+
+                      if node.isThinkingExpanded {
+                          Text(node.thinkingTrace.isEmpty ? "Initializing reasoning trace..." : node.thinkingTrace)
+                              .font(.system(size: 12.5, weight: .regular, design: .monospaced))
+                              .foregroundColor(theme.secondaryText)
+                              .padding(12)
+                              .frame(maxWidth: .infinity, alignment: .leading)
+                              .background(theme.secondarySurface.opacity(0.45))
+                              .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                      }
+                  }
+              }
+
+              // MARK: - Split Markdown & Fenced Code Block Renderer
+              @ViewBuilder
+              private func renderStructuredMarkdownAndCode(content: String) -> some View {
+                  let segments = parseCodeSegments(from: content)
+                  VStack(alignment: .leading, spacing: 12) {
+                      ForEach(segments.indices, id: \.self) { idx in
+                          let seg = segments[idx]
+                          if seg.isCode {
+                              EditorialCodeBlockView(
+                                  language: seg.language,
+                                  code: seg.text,
+                                  theme: theme,
+                                  onOpenInArtifactPane: {
+                                      store.isRightUtilityPaneOpen = true
+                                      store.activeUtilityTab = .code
+                                  }
+                              )
+                          } else if !seg.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                              Text(seg.text)
+                                  .font(typo.font(size: CGFloat(typo.baseFontSize)))
+                                  .lineSpacing(CGFloat(typo.baseFontSize * (typo.lineSpacingMultiplier - 1.0)))
+                                  .foregroundColor(theme.primaryText)
+                                  .textSelection(.enabled)
+                          }
+                      }
+                  }
+              }
+
+              private struct ContentSegment {
+                  var isCode: Bool
+                  var language: String
+                  var text: String
+              }
+
+              private func parseCodeSegments(from raw: String) -> [ContentSegment] {
+                  var results: [ContentSegment] = []
+                  let parts = raw.components(separatedBy: "```")
+                  for (index, part) in parts.enumerated() {
+                      if index % 2 == 0 {
+                          results.append(ContentSegment(isCode: false, language: "", text: part))
+                      } else {
+                          var lines = part.components(separatedBy: .newlines)
+                          let firstLine = lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                          if !lines.isEmpty { lines.removeFirst() }
+                          let body = lines.joined(separator: "\n")
+                          results.append(ContentSegment(isCode: true, language: firstLine, text: body))
+                      }
+                  }
+                  return results
+              }
+          }
+          EOF
+
+      - name: Generate Progressive Disclosure Composer & Precision Parameter Inspector Popover (ComposerAndInspectorViews.swift)
+        run: |
+          cat << 'EOF' > AetherStudio/Sources/AetherStudio/Views/ComposerAndInspectorViews.swift
+          import SwiftUI
+          import AppKit
+
+          public struct ProgressiveComposerBar: View {
+              @ObservedObject public var store: WorkstationStore
+              @State private var isSystemPromptSheetOpen: Bool = false
+
+              private var theme: AppThemeID { store.activeTheme }
+
+              public var body: some View {
+                  VStack(alignment: .leading, spacing: 8) {
+                      // Compact Previewable Document Attachment Chips (Paste Protection)
+                      if !store.pendingAttachments.isEmpty {
+                          ScrollView(.horizontal, showsIndicators: false) {
+                              HStack(spacing: 8) {
+                                  ForEach(store.pendingAttachments) { chip in
+                                      HStack(spacing: 6) {
+                                          Image(systemName: "doc.text.below.ecg.fill")
+                                              .font(.system(size: 11))
+                                              .foregroundColor(theme.accentColor)
+                                          VStack(alignment: .leading, spacing: 1) {
+                                              Text(chip.title)
+                                                  .font(.system(size: 11, weight: .semibold))
+                                                  .foregroundColor(theme.primaryText)
+                                              Text("~\(chip.tokenEstimate) tokens isolated from buffer")
+                                                  .font(.system(size: 9.5, design: .monospaced))
+                                                  .monospacedDigit()
+                                                  .foregroundColor(theme.secondaryText)
+                                          }
+                                          Button {
+                                              store.pendingAttachments.removeAll { $0.id == chip.id }
+                                          } label: {
+                                              Image(systemName: "xmark.circle.fill")
+                                                  .font(.system(size: 12))
+                                                  .foregroundColor(theme.secondaryText)
+                                          }
+                                          .buttonStyle(.plain)
+                                      }
+                                      .padding(.horizontal, 10)
+                                      .padding(.vertical, 6)
+                                      .background(theme.secondarySurface)
+                                      .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                  }
+                              }
+                          }
+                      }
+
+                      // Multi-line Expandable Input Field (Stays live during streaming so follow-ups can be drafted)
+                      TextField(
+                          "Ask anything, paste logs (auto-chipped), or press ⌘K for commands...",
+                          text: Binding(
+                              get: { store.composerDraft },
+                              set: { store.handleTextInputOrPaste($0) }
+                          ),
+                          axis: .vertical
+                      )
+                      .textFieldStyle(.plain)
+                      .font(store.typography.font(size: CGFloat(store.typography.baseFontSize)))
+                      .foregroundColor(theme.primaryText)
+                      .lineLimit(1...8)
+                      .padding(.horizontal, 6)
+                      .padding(.top, 4)
+                      .onSubmit {
+                          if !store.isStreamingGeneration {
+                              store.sendActivePrompt()
+                          }
+                      }
+
+                      // Progressive Disclosure Bottom Control Bar
+                      HStack(spacing: 10) {
+                          // 1. Progressive Disclosure '+' Tools Menu
+                          Menu {
+                              Button {
+                                  attachLocalFileOrVisionAsset()
+                              } label: {
+                                  Label("Attach File, Code or Vision Image...", systemImage: "paperclip")
+                              }
+
+                              Button {
+                                  isSystemPromptSheetOpen = true
+                              } label: {
+                                  Label("Edit Pinned System Prompt (\(store.currentContextProjection.pinnedSystemPromptTokens) tokens)", systemImage: "pin.circle")
+                              }
+
+                              Button {
+                                  store.runSideBySideArenaComparison(
+                                      prompt: store.composerDraft.isEmpty ? "Design a lock-free actor scheduler in Swift 6" : store.composerDraft,
+                                      models: ["deepseek-r1:14b", "qwen2.5-coder:32b"]
+                                  )
+                              } label: {
+                                  Label("Run Side-by-Side Model Arena Comparison", systemImage: "square.split.2x1")
+                              }
+
+                              Divider()
+
+                              Menu("Apply Parameter Preset") {
+                                  ForEach(store.presets) { preset in
+                                      Button(preset.name) {
+                                          if let idx = store.sessions.firstIndex(where: { $0.id == store.selectedSessionID }) {
+                                              store.sessions[idx].parameters = preset.parameters
+                                              store.recalculateHardwareTelemetry()
+                                          }
+                                      }
+                                  }
+                              }
+                          } label: {
+                              Image(systemName: "plus.circle.fill")
+                                  .font(.system(size: 17, weight: .medium))
+                                  .foregroundColor(theme.secondaryText)
+                          }
+                          .menuStyle(.borderlessButton)
+                          .frame(width: 24)
+                          .help("Attach Files, System Prompt & Arena Tools")
+
+                          // 2. One-Click Searchable Model Selector Pill
+                          Menu {
+                              ForEach(store.availableModels) { model in
+                                  Button {
+                                      store.requestModelSwitch(to: model)
+                                  } label: {
+                                      HStack {
+                                          Text("\(model.displayName) (\(model.formattedSize))")
+                                          if model.residency == .activeInUnifiedRAM {
+                                              Text("• Resident in RAM")
+                                          }
+                                      }
+                                  }
+                              }
+                          } label: {
+                              HStack(spacing: 6) {
+                                  Circle()
+                                      .fill(store.activeModelDescriptor.residency == .activeInUnifiedRAM ? Color.green : Color.orange)
+                                      .frame(width: 6.5, height: 6.5)
+                                  Text(store.activeModelDescriptor.displayName)
+                                      .font(.system(size: 11.5, weight: .semibold))
+                                      .foregroundColor(theme.primaryText)
+                                  Image(systemName: "chevron.up.chevron.down")
+                                      .font(.system(size: 9, weight: .bold))
+                                      .foregroundColor(theme.secondaryText)
+                              }
+                              .padding(.horizontal, 10)
+                              .padding(.vertical, 5)
+                              .background(theme.secondarySurface)
+                              .clipShape(Capsule())
+                          }
+                          .menuStyle(.borderlessButton)
+                          .fixedSize()
+
+                          // 3. Model-Aware First-Class Thinking Toggle (Only shown when model supports reasoning)
+                          if store.activeModelDescriptor.supportsThinking {
+                              let thinkingOn = store.activeSession?.parameters.thinkingEnabled ?? true
+                              Button {
+                                  if let idx = store.sessions.firstIndex(where: { $0.id == store.selectedSessionID }) {
+                                      store.sessions[idx].parameters.thinkingEnabled.toggle()
+                                  }
+                              } label: {
+                                  HStack(spacing: 5) {
+                                      Image(systemName: "brain.head.profile")
+                                          .font(.system(size: 11, weight: .semibold))
+                                      Text(thinkingOn ? "Think · \(store.activeSession?.parameters.reasoningEffort.rawValue ?? "Med")" : "Think Off")
+                                          .font(.system(size: 11, weight: .semibold))
+                                  }
+                                  .foregroundColor(thinkingOn ? theme.accentColor : theme.secondaryText)
+                                  .padding(.horizontal, 9)
+                                  .padding(.vertical, 5)
+                                  .background(thinkingOn ? theme.accentColor.opacity(0.16) : theme.secondarySurface)
+                                  .clipShape(Capsule())
+                              }
+                              .buttonStyle(.plain)
+                          }
+
+                          // 4. Precision Parameter Inspector Popover Trigger
+                          Button {
+                              store.isParameterPopoverPresented.toggle()
+                          } label: {
+                              HStack(spacing: 5) {
+                                  Image(systemName: "slider.horizontal.3")
+                                      .font(.system(size: 11, weight: .semibold))
+                                  Text(String(
+                                      format: "T %.2f · Ctx %dk",
+                                      store.activeSession?.parameters.temperature ?? 0.7,
+                                      (store.activeSession?.parameters.numCtx ?? 8192) / 1024
+                                  ))
+                                  .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                  .monospacedDigit()
+                              }
+                              .foregroundColor(theme.secondaryText)
+                              .padding(.horizontal, 9)
+                              .padding(.vertical, 5)
+                              .background(theme.secondarySurface)
+                              .clipShape(Capsule())
+                          }
+                          .buttonStyle(.plain)
+                          .popover(isPresented: $store.isParameterPopoverPresented, arrowEdge: .top) {
+                              ParameterInspectorPopover(store: store)
+                          }
+
+                          Spacer()
+
+                          // Live Streaming Telemetry or Send Action
+                          if store.isStreamingGeneration {
+                              HStack(spacing: 8) {
+                                  Text(String(format: "%.1f tok/s · %.1fs", store.liveTokensPerSec, store.liveElapsedSeconds))
+                                      .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                      .monospacedDigit()
+                                      .foregroundColor(theme.accentColor)
+
+                                  Button(action: store.stopActiveGeneration) {
+                                      HStack(spacing: 4) {
+                                          Image(systemName: "stop.fill")
+                                              .font(.system(size: 10))
+                                          Text("Stop (⌘.)")
+                                              .font(.system(size: 11, weight: .semibold))
+                                      }
+                                      .foregroundColor(.white)
+                                      .padding(.horizontal, 10)
+                                      .padding(.vertical, 5)
+                                      .background(Color.red.opacity(0.85))
+                                      .clipShape(Capsule())
+                                  }
+                                  .buttonStyle(.plain)
+                              }
+                          } else {
+                              Button {
+                                  store.sendActivePrompt()
+                              } label: {
+                                  Image(systemName: "arrow.up.circle.fill")
+                                      .font(.system(size: 24, weight: .semibold))
+                                      .foregroundColor(
+                                          store.composerDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && store.pendingAttachments.isEmpty
+                                          ? theme.secondaryText.opacity(0.4)
+                                          : theme.accentColor
+                                      )
+                              }
+                              .buttonStyle(.plain)
+                              .keyboardShortcut(.return, modifiers: [.command])
+                              .help("Send Message (Cmd+Return)")
+                          }
+                      }
+                  }
+                  .padding(12)
+                  .frame(maxWidth: CGFloat(store.typography.comfortableReadingWidth))
+                  .background(theme.elevatedCard)
+                  .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                  .overlay(
+                      RoundedRectangle(cornerRadius: 14, style: .continuous)
+                          .stroke(theme.specularBorder, lineWidth: 0.8)
+                  )
+                  .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+                  .sheet(isPresented: $isSystemPromptSheetOpen) {
+                      SystemPromptProtectionSheet(store: store)
+                  }
+              }
+
+              private func attachLocalFileOrVisionAsset() {
+                  let panel = NSOpenPanel()
+                  panel.title = "Attach Source File, Log or Vision Image"
+                  panel.allowsMultipleSelection = true
+                  panel.canChooseDirectories = false
+                  if panel.runModal() == .OK {
+                      for url in panel.urls {
+                          let data = (try? Data(contentsOf: url)) ?? Data()
+                          let textPreview = String(data: data.prefix(512), encoding: .utf8) ?? "Binary / Vision Asset"
+                          let chip = MessageAttachment(
+                              title: url.lastPathComponent,
+                              kind: .sourceCodeFile,
+                              byteCount: data.count,
+                              lineCount: max(1, textPreview.components(separatedBy: .newlines).count),
+                              previewText: textPreview
+                          )
+                          store.pendingAttachments.append(chip)
+                      }
+                  }
+              }
+          }
+
+          // MARK: - Complete Precision Parameter Inspector Popover (100% Engine Coverage)
+          public struct ParameterInspectorPopover: View {
+              @ObservedObject public var store: WorkstationStore
+
+              private var sessionIndex: Int? {
+                  store.sessions.firstIndex(where: { $0.id == store.selectedSessionID })
+              }
+
+              public var body: some View {
+                  let proj = store.currentContextProjection
+                  ScrollView {
+                      if let idx = sessionIndex {
+                          VStack(alignment: .leading, spacing: 14) {
+                              HStack {
+                                  Label("Precision Runtime Inspector", systemImage: "dial.high.fill")
+                                      .font(.system(size: 13, weight: .bold))
+                                  Spacer()
+                                  Text("Per-Session Scope")
+                                      .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                                      .foregroundColor(.secondary)
+                              }
+
+                              // Dynamic Context-to-RAM Calculator Card
+                              VStack(alignment: .leading, spacing: 6) {
+                                  HStack {
+                                      Text("Context Window (num_ctx)")
+                                          .font(.system(size: 11.5, weight: .semibold))
+                                      Spacer()
+                                      Text("\(store.sessions[idx].parameters.numCtx) tok · ~\(proj.approximateDocumentPages) pages · KV \(proj.kvCacheFormatted)")
+                                          .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                          .monospacedDigit()
+                                  }
+
+                                  Picker("Context Tier", selection: $store.sessions[idx].parameters.numCtx) {
+                                      Text("4K").tag(4096)
+                                      Text("8K").tag(8192)
+                                      Text("16K").tag(16384)
+                                      Text("32K").tag(32768)
+                                      Text("64K").tag(65536)
+                                      Text("128K").tag(131072)
+                                  }
+                                  .pickerStyle(.segmented)
+                                  .onChange(of: store.sessions[idx].parameters.numCtx) { _, _ in
+                                      store.recalculateHardwareTelemetry()
+                                  }
+
+                                  Picker("KV Cache Quantization", selection: $store.sessions[idx].parameters.kvCacheQuant) {
+                                      ForEach(KVCacheQuantization.allCases) { q in
+                                          Text(q.rawValue).tag(q)
+                                      }
+                                  }
+                                  .font(.system(size: 11))
+                                  .onChange(of: store.sessions[idx].parameters.kvCacheQuant) { _, _ in
+                                      store.recalculateHardwareTelemetry()
+                                  }
+
+                                  if let warning = proj.conflictWarningMessage {
+                                      Text(warning)
+                                          .font(.system(size: 10.5))
+                                          .foregroundColor(.orange)
+                                  }
+                              }
+                              .padding(10)
+                              .background(Color.secondary.opacity(0.1))
+                              .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                              // Sampling Knobs with Side-by-Side Sliders & Monospaced Readouts
+                              parameterSliderRow(
+                                  title: "Temperature",
+                                  value: $store.sessions[idx].parameters.temperature,
+                                  range: 0.0...2.0,
+                                  format: "%.2f"
+                              )
+                              parameterSliderRow(
+                                  title: "Top-P (Nucleus)",
+                                  value: $store.sessions[idx].parameters.topP,
+                                  range: 0.05...1.0,
+                                  format: "%.2f"
+                              )
+                              parameterSliderRow(
+                                  title: "Min-P Threshold",
+                                  value: $store.sessions[idx].parameters.minP,
+                                  range: 0.0...0.5,
+                                  format: "%.2f"
+                              )
+                              parameterSliderRow(
+                                  title: "Typical-P",
+                                  value: $store.sessions[idx].parameters.typicalP,
+                                  range: 0.1...1.0,
+                                  format: "%.2f"
+                              )
+                              parameterSliderRow(
+                                  title: "Repeat Penalty",
+                                  value: $store.sessions[idx].parameters.repeatPenalty,
+                                  range: 0.8...1.6,
+                                  format: "%.2f"
+                              )
+                              parameterSliderRow(
+                                  title: "Presence Penalty",
+                                  value: $store.sessions[idx].parameters.presencePenalty,
+                                  range: -2.0...2.0,
+                                  format: "%.2f"
+                              )
+                              parameterSliderRow(
+                                  title: "Frequency Penalty",
+                                  value: $store.sessions[idx].parameters.frequencyPenalty,
+                                  range: -2.0...2.0,
+                                  format: "%.2f"
+                              )
+
+                              Divider()
+
+                              // Integer & Hardware Knobs
+                              HStack {
+                                  Text("Top-K")
+                                      .font(.system(size: 11.5))
+                                  Spacer()
+                                  Stepper("\(store.sessions[idx].parameters.topK)", value: $store.sessions[idx].parameters.topK, in: 1...200, step: 5)
+                                      .font(.system(size: 11.5, design: .monospaced))
+                                      .monospacedDigit()
+                              }
+
+                              HStack {
+                                  Text("Metal GPU Layers (num_gpu)")
+                                      .font(.system(size: 11.5))
+                                  Spacer()
+                                  Stepper("\(store.sessions[idx].parameters.numGpu)", value: $store.sessions[idx].parameters.numGpu, in: 0...128, step: 1)
+                                      .font(.system(size: 11.5, design: .monospaced))
+                                      .monospacedDigit()
+                              }
+
+                              HStack {
+                                  Text("CPU Compute Threads")
+                                      .font(.system(size: 11.5))
+                                  Spacer()
+                                  Stepper("\(store.sessions[idx].parameters.numThread)", value: $store.sessions[idx].parameters.numThread, in: 1...32, step: 1)
+                                      .font(.system(size: 11.5, design: .monospaced))
+                                      .monospacedDigit()
+                              }
+
+                              Picker("Mirostat Controller", selection: $store.sessions[idx].parameters.mirostat) {
+                                  ForEach(MirostatMode.allCases) { mode in
+                                      Text(mode.label).tag(mode)
+                                  }
+                              }
+                              .font(.system(size: 11.5))
+
+                              Toggle("Enforce Strict JSON Schema Output", isOn: $store.sessions[idx].parameters.enforceJSONMode)
+                                  .font(.system(size: 11.5))
+                          }
+                          .padding(16)
+                      }
+                  }
+                  .frame(width: 390, height: 480)
+              }
+
+              private func parameterSliderRow(title: String, value: Binding<Double>, range: ClosedRange<Double>, format: String) -> some View {
+                  VStack(alignment: .leading, spacing: 3) {
+                      HStack {
+                          Text(title)
+                              .font(.system(size: 11.5, weight: .medium))
+                          Spacer()
+                          Text(String(format: format, value.wrappedValue))
+                              .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                              .monospacedDigit()
+                      }
+                      Slider(value: value, in: range)
+                  }
+              }
+          }
+
+          // MARK: - Persona Protection System Prompt Sheet
+          public struct SystemPromptProtectionSheet: View {
+              @ObservedObject public var store: WorkstationStore
+              @Environment(\.dismiss) private var dismiss
+
+              public var body: some View {
+                  let proj = store.currentContextProjection
+                  VStack(alignment: .leading, spacing: 14) {
+                      HStack {
+                          Label("Persona Protection & Pinned System Directives", systemImage: "lock.shield.fill")
+                              .font(.system(size: 14, weight: .bold))
+                          Spacer()
+                          Text("Pinned: \(proj.pinnedSystemPromptTokens) tokens (num_keep)")
+                              .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                              .monospacedDigit()
+                              .foregroundColor(.green)
+                      }
+
+                      Text("System instructions are perpetually pinned in Apple Silicon KV cache memory so multi-turn context roll-off never causes instruction amnesia.")
+                          .font(.system(size: 12))
+                          .foregroundColor(.secondary)
+
+                      if let idx = store.sessions.firstIndex(where: { $0.id == store.selectedSessionID }) {
+                          TextEditor(text: $store.sessions[idx].systemPrompt)
+                              .font(.system(size: 13, design: .monospaced))
+                              .frame(minHeight: 160)
+                              .padding(8)
+                              .background(Color.secondary.opacity(0.1))
+                              .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                      }
+
+                      HStack {
+                          Spacer()
+                          Button("Done") {
+                              store.recalculateHardwareTelemetry()
+                              dismiss()
+                          }
+                          .buttonStyle(.borderedProminent)
+                      }
+                  }
+                  .padding(20)
+                  .frame(width: 520, height: 320)
+              }
+          }
+          EOF
+
+      - name: Generate Right Utility Pane (Artifacts & Model Arena) + Command Palette + Quick Ask + 7-Tab Settings (UtilityAndModalViews.swift)
+        run: |
+          cat << 'EOF' > AetherStudio/Sources/AetherStudio/Views/UtilityAndModalViews.swift
+          import SwiftUI
+          import AppKit
+
+          // MARK: - Zone 3: Collapsible Right Artifact & Model Comparison Arena Pane
+          public struct RightUtilityArtifactPane: View {
+              @ObservedObject public var store: WorkstationStore
+
+              private var theme: AppThemeID { store.activeTheme }
+              private var artifacts: [WorkspaceArtifact] {
+                  store.activeSession?.artifacts ?? []
+              }
+              private var currentArtifact: WorkspaceArtifact? {
+                  if let id = store.selectedArtifactID, let match = artifacts.first(where: { $0.id == id }) {
+                      return match
+                  }
+                  return artifacts.first
+              }
+
+              public var body: some View {
+                  VStack(alignment: .leading, spacing: 0) {
+                      // Top Utility Header
+                      HStack(spacing: 10) {
+                          Image(systemName: "sidebar.squares.right")
+                              .foregroundColor(theme.accentColor)
+                          Text("Artifacts & Model Arena")
+                              .font(.system(size: 12.5, weight: .semibold))
+                              .foregroundColor(theme.primaryText)
+
+                          Spacer()
+
+                          Button {
+                              withAnimation(.easeOut(duration: 0.18)) {
+                                  store.isRightUtilityPaneOpen = false
+                              }
+                          } label: {
+                              Image(systemName: "xmark.circle.fill")
+                                  .font(.system(size: 14))
+                                  .foregroundColor(theme.secondaryText)
+                          }
+                          .buttonStyle(.plain)
+                          .help("Close Utility Pane (Cmd+\\)")
+                      }
+                      .padding(.horizontal, 14)
+                      .padding(.vertical, 10)
+                      .background(theme.secondarySurface.opacity(0.75))
+
+                      Divider().opacity(0.25)
+
+                      if let artifact = currentArtifact {
+                          // Artifact Picker Pill Strip
+                          ScrollView(.horizontal, showsIndicators: false) {
+                              HStack(spacing: 6) {
+                                  ForEach(artifacts) { item in
+                                      let selected = item.id == artifact.id
+                                      Button {
+                                          store.selectedArtifactID = item.id
+                                      } label: {
+                                          Text(item.title)
+                                              .font(.system(size: 11, weight: selected ? .semibold : .regular))
+                                              .foregroundColor(selected ? theme.primaryText : theme.secondaryText)
+                                              .padding(.horizontal, 10)
+                                              .padding(.vertical, 5)
+                                              .background(selected ? theme.accentColor.opacity(0.22) : theme.secondarySurface)
+                                              .clipShape(Capsule())
+                                      }
+                                      .buttonStyle(.plain)
+                                  }
+                              }
+                              .padding(10)
+                          }
+
+                          if artifact.kind == .modelArena {
+                              arenaComparisonView(artifact)
+                          } else {
+                              ScrollView {
+                                  VStack(alignment: .leading, spacing: 12) {
+                                      HStack {
+                                          Text(artifact.language.uppercased())
+                                              .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                              .foregroundColor(theme.accentColor)
+                                          Spacer()
+                                          Button {
+                                              openInExternalEditor(code: artifact.content, ext: artifact.language)
+                                          } label: {
+                                              Label("Open in Xcode / VS Code", systemImage: "arrow.up.forward.app.fill")
+                                                  .font(.system(size: 11, weight: .medium))
+                                          }
+                                          .buttonStyle(.bordered)
+                                      }
+
+                                      EditorialCodeBlockView(
+                                          language: artifact.language,
+                                          code: artifact.content,
+                                          theme: theme,
+                                          onOpenInArtifactPane: {}
+                                      )
+                                  }
+                                  .padding(14)
+                              }
+                          }
+                      } else {
+                          VStack(spacing: 10) {
+                              Spacer()
+                              Image(systemName: "doc.Viewfinder")
+                                  .font(.system(size: 28))
+                                  .foregroundColor(theme.secondaryText)
+                              Text("No Artifacts Selected")
+                                  .font(.system(size: 13, weight: .semibold))
+                                  .foregroundColor(theme.primaryText)
+                              Text("Generated code blocks and side-by-side Model Arena runs appear here automatically.")
+                                  .font(.system(size: 11.5))
+                                  .foregroundColor(theme.secondaryText)
+                                  .multilineTextAlignment(.center)
+                                  .padding(.horizontal, 24)
+                              Spacer()
+                          }
+                      }
+                  }
+                  .frame(minWidth: 340, idealWidth: 400, maxWidth: 520)
+                  .background(theme.canvasBackground)
+                  .overlay(alignment: .leading) {
+                      Rectangle()
+                          .fill(theme.specularBorder)
+                          .frame(width: 0.5)
+                          .ignoresSafeArea()
+                  }
+              }
+
+              @ViewBuilder
+              private func arenaComparisonView(_ artifact: WorkspaceArtifact) -> some View {
+                  ScrollView {
+                      VStack(alignment: .leading, spacing: 12) {
+                          Text("PROMPT: \(artifact.content)")
+                              .font(.system(size: 11.5, weight: .semibold))
+                              .foregroundColor(theme.secondaryText)
+                              .padding(.horizontal, 14)
+
+                          HStack(alignment: .top, spacing: 10) {
+                              ForEach(artifact.arenaColumns) { col in
+                                  VStack(alignment: .leading, spacing: 8) {
+                                      HStack {
+                                          Text(col.modelName)
+                                              .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                              .foregroundColor(theme.accentColor)
+                                          Spacer()
+                                          Text(String(format: "%.1f t/s", col.tokensPerSec))
+                                              .font(.system(size: 10.5, design: .monospaced))
+                                              .monospacedDigit()
+                                              .foregroundColor(theme.secondaryText)
+                                      }
+                                      Divider().opacity(0.2)
+                                      Text(col.responseOutput)
+                                          .font(.system(size: 12))
+                                          .foregroundColor(theme.primaryText)
+                                  }
+                                  .padding(10)
+                                  .frame(maxWidth: .infinity, alignment: .leading)
+                                  .background(theme.elevatedCard)
+                                  .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                              }
+                          }
+                          .padding(.horizontal, 14)
+                      }
+                  }
+              }
+
+              private func openInExternalEditor(code: String, ext: String) {
+                  let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("AetherArtifact.\(ext.isEmpty ? "swift" : ext)")
+                  try? code.write(to: tempURL, atomically: true, encoding: .utf8)
+                  NSWorkspace.shared.open(tempURL)
+              }
+          }
+
+          // MARK: - Keyboard-First Command Palette (Cmd+K)
+          public struct CommandPaletteOverlay: View {
+              @ObservedObject public var store: WorkstationStore
+              @State private var query: String = ""
+              @State private var selectedIndex: Int = 0
+
+              private var theme: AppThemeID { store.activeTheme }
+
+              private struct PaletteCommand: Identifiable {
+                  let id = UUID()
+                  let title: String
+                  let shortcut: String
+                  let icon: String
+                  let action: () -> Void
+              }
+
+              private var commands: [PaletteCommand] {
+                  let all: [PaletteCommand] = [
+                      PaletteCommand(title: "New Editorial Conversation", shortcut: "⌘N", icon: "square.and.pencil") {
+                          store.createNewSession()
+                          store.isCommandPalettePresented = false
+                      },
+                      PaletteCommand(title: "Toggle Right Artifact & Arena Pane", shortcut: "⌘\\", icon: "sidebar.right") {
+                          store.isRightUtilityPaneOpen.toggle()
+                          store.isCommandPalettePresented = false
+                      },
+                      PaletteCommand(title: "Toggle Left Navigation Sidebar", shortcut: "⌘S", icon: "sidebar.left") {
+                          store.isSidebarVisible.toggle()
+                          store.isCommandPalettePresented = false
+                      },
+                      PaletteCommand(title: "Launch Side-by-Side Model Comparison Arena", shortcut: "⌘⇧A", icon: "square.split.2x1") {
+                          store.runSideBySideArenaComparison(
+                              prompt: "Compare memory-safe concurrency primitives in Swift 6",
+                              models: ["deepseek-r1:14b", "qwen2.5-coder:32b"]
+                          )
+                          store.isCommandPalettePresented = false
+                      },
+                      PaletteCommand(title: "Switch Theme: Obsidian Dark / Botanical / Linen / Monochrome", shortcut: "⌘T", icon: "paintpalette") {
+                          let allThemes = AppThemeID.allCases
+                          if let idx = allThemes.firstIndex(of: store.activeTheme) {
+                              store.activeTheme = allThemes[(idx + 1) % allThemes.count]
+                          }
+                          store.isCommandPalettePresented = false
+                      },
+                      PaletteCommand(title: "Open Floating Quick-Ask Mini Bar", shortcut: "⌥Space", icon: "bolt.horizontal.circle") {
+                          store.isQuickAskBarVisible = true
+                          store.isCommandPalettePresented = false
+                      },
+                      PaletteCommand(title: "Open Workstation Settings Rail", shortcut: "⌘,", icon: "gearshape") {
+                          store.isSettingsModalPresented = true
+                          store.isCommandPalettePresented = false
+                      }
+                  ]
+                  let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                  guard !q.isEmpty else { return all }
+                  return all.filter { $0.title.lowercased().contains(q) }
+              }
+
+              public var body: some View {
+                  ZStack {
+                      Color.black.opacity(0.42)
+                          .ignoresSafeArea()
+                          .onTapGesture {
+                              store.isCommandPalettePresented = false
+                          }
+
+                      VStack(alignment: .leading, spacing: 0) {
+                          HStack(spacing: 10) {
+                              Image(systemName: "command")
+                                  .font(.system(size: 14, weight: .bold))
+                                  .foregroundColor(theme.accentColor)
+                              TextField("Type a command or jump to model...", text: $query)
+                                  .textFieldStyle(.plain)
+                                  .font(.system(size: 14, weight: .medium))
+                                  .foregroundColor(theme.primaryText)
+                                  .onSubmit {
+                                      if commands.indices.contains(selectedIndex) {
+                                          commands[selectedIndex].action()
+                                      }
+                                  }
+                              Text("ESC")
+                                  .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                  .foregroundColor(theme.secondaryText)
+                                  .padding(.horizontal, 6)
+                                  .padding(.vertical, 3)
+                                  .background(theme.secondarySurface)
+                                  .clipShape(RoundedRectangle(cornerRadius: 4))
+                          }
+                          .padding(14)
+
+                          Divider().opacity(0.25)
+
+                          ScrollView {
+                              VStack(spacing: 4) {
+                                  ForEach(Array(commands.enumerated()), id: \.element.id) { idx, cmd in
+                                      Button(action: cmd.action) {
+                                          HStack(spacing: 10) {
+                                              Image(systemName: cmd.icon)
+                                                  .frame(width: 20)
+                                                  .foregroundColor(theme.accentColor)
+                                              Text(cmd.title)
+                                                  .font(.system(size: 13, weight: .medium))
+                                                  .foregroundColor(theme.primaryText)
+                                              Spacer()
+                                              Text(cmd.shortcut)
+                                                  .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                                  .foregroundColor(theme.secondaryText)
+                                          }
+                                          .padding(.horizontal, 12)
+                                          .padding(.vertical, 8)
+                                          .background(
+                                              RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                                  .fill(idx == selectedIndex ? theme.accentColor.opacity(0.2) : Color.clear)
+                                          )
+                                      }
+                                      .buttonStyle(.plain)
+                                  }
+                              }
+                              .padding(8)
+                          }
+                      }
+                      .frame(width: 520, height: 340)
+                      .background(theme.elevatedCard)
+                      .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                      .overlay(
+                          RoundedRectangle(cornerRadius: 14, style: .continuous)
+                              .stroke(theme.specularBorder, lineWidth: 1)
+                      )
+                      .shadow(color: .black.opacity(0.35), radius: 24, y: 10)
+                  }
+              }
+          }
+
+          // MARK: - Structured 7-Category Settings Rail (Never a Single Long Scrolling Page)
+          public struct WorkstationSettingsModal: View {
+              @ObservedObject public var store: WorkstationStore
+              @Environment(\.dismiss) private var dismiss
+
+              public enum SettingsRailCategory: String, CaseIterable, Identifiable {
+                  case general = "General & Supervisor"
+                  case appearance = "Appearance & Fonts"
+                  case modelsAndStorage = "Models, GGUF & Drives"
+                  case generationDefaults = "Generation Defaults"
+                  case shortcuts = "Keyboard Shortcuts"
+                  case securityAndVault = "Privacy & Keychain"
+                  case about = "About Aether Studio"
+
+                  public var id: String { rawValue }
+                  public var icon: String {
+                      switch self {
+                      case .general: return "cpu"
+                      case .appearance: return "paintbrush.pointed.fill"
+                      case .modelsAndStorage: return "externaldrive.fill.badge.checkmark"
+                      case .generationDefaults: return "slider.horizontal.3"
+                      case .shortcuts: return "keyboard.fill"
+                      case .securityAndVault: return "lock.shield.fill"
+                      case .about: return "sparkles"
+                      }
+                  }
+              }
+
+              @State private var selectedCategory: SettingsRailCategory = .appearance
+              @State private var pullModelInput: String = "qwen2.5-coder:14b"
+              @State private var remoteProviderKey: String = ""
+              @State private var keychainStatusMessage: String = ""
+
+              private var theme: AppThemeID { store.activeTheme }
+
+              public var body: some View {
+                  HStack(spacing: 0) {
+                      // Left Structured Category Rail
+                      VStack(alignment: .leading, spacing: 4) {
+                          Text("WORKSTATION SETTINGS")
+                              .font(.system(size: 10.5, weight: .bold))
+                              .tracking(0.6)
+                              .foregroundColor(.secondary)
+                              .padding(.horizontal, 12)
+                              .padding(.top, 16)
+                              .padding(.bottom, 6)
+
+                          ForEach(SettingsRailCategory.allCases) { category in
+                              let isSelected = selectedCategory == category
+                              Button {
+                                  selectedCategory = category
+                              } label: {
+                                  HStack(spacing: 9) {
+                                      Image(systemName: category.icon)
+                                          .frame(width: 18)
+                                          .foregroundColor(isSelected ? theme.accentColor : .secondary)
+                                      Text(category.rawValue)
+                                          .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
+                                      Spacer()
+                                  }
+                                  .padding(.horizontal, 10)
+                                  .padding(.vertical, 7)
+                                  .background(
+                                      RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                          .fill(isSelected ? theme.accentColor.opacity(0.18) : Color.clear)
+                                  )
+                              }
+                              .buttonStyle(.plain)
+                              .padding(.horizontal, 8)
+                          }
+
+                          Spacer()
+
+                          Button("Close Settings") {
+                              dismiss()
+                          }
+                          .buttonStyle(.borderedProminent)
+                          .padding(14)
+                      }
+                      .frame(width: 225)
+                      .background(Color.secondary.opacity(0.08))
+
+                      Divider()
+
+                      // Right Category Detail Surface
+                      ScrollView {
+                          VStack(alignment: .leading, spacing: 18) {
+                              switch selectedCategory {
+                              case .general:
+                                  generalSupervisorSection
+                              case .appearance:
+                                  appearanceAndTypographySection
+                              case .modelsAndStorage:
+                                  modelsAndExternalDriveSection
+                              case .generationDefaults:
+                                  generationDefaultsSection
+                              case .shortcuts:
+                                  keyboardShortcutsReferenceSection
+                              case .securityAndVault:
+                                  securityAndKeychainSection
+                              case .about:
+                                  aboutWorkstationSection
+                              }
+                          }
+                          .padding(24)
+                      }
+                      .frame(maxWidth: .infinity, maxHeight: .infinity)
+                  }
+                  .frame(width: 780, height: 520)
+              }
+
+              private var generalSupervisorSection: some View {
+                  VStack(alignment: .leading, spacing: 14) {
+                      Text("Process Supervisor & Local Engine Environment")
+                          .font(.system(size: 16, weight: .bold))
+
+                      Text(store.supervisor.supervisorStatusLog)
+                          .font(.system(size: 12, design: .monospaced))
+                          .foregroundColor(.secondary)
+
+                      TextField("Local Engine Endpoint", text: $store.supervisor.engineEndpoint)
+                          .textFieldStyle(.roundedBorder)
+
+                      Toggle("Bind Engine to Local Area Network (0.0.0.0:11434 — Opt-In Security Notice)", isOn: $store.supervisor.bindToLocalNetwork)
+                      Toggle("Enable Flash Attention (OLLAMA_FLASH_ATTENTION=1)", isOn: $store.supervisor.enableFlashAttentionEnv)
+
+                      Stepper("Parallel Request Slots (OLLAMA_NUM_PARALLEL): \(store.supervisor.parallelRequestSlots)", value: $store.supervisor.parallelRequestSlots, in: 1...8)
+                      Stepper("Max Resident Models (OLLAMA_MAX_LOADED_MODELS): \(store.supervisor.maxLoadedModels)", value: $store.supervisor.maxLoadedModels, in: 1...4)
+
+                      HStack(spacing: 12) {
+                          Button("Launch Managed Engine Process") {
+                              store.supervisor.launchManagedDaemonIfNeeded()
+                          }
+                          .buttonStyle(.borderedProminent)
+
+                          Button("Stop Managed Instance Safely") {
+                              store.supervisor.terminateManagedDaemonGracefully()
+                          }
+                          .buttonStyle(.bordered)
+                      }
+                  }
+              }
+
+              private var appearanceAndTypographySection: some View {
+                  VStack(alignment: .leading, spacing: 16) {
+                      Text("Live Theme Engine & Optical Typography")
+                          .font(.system(size: 16, weight: .bold))
+
+                      ForEach(AppThemeID.allCases) { item in
+                          Button {
+                              store.activeTheme = item
+                          } label: {
+                              HStack {
+                                  Circle()
+                                      .fill(item.accentColor)
+                                      .frame(width: 14, height: 14)
+                                  VStack(alignment: .leading) {
+                                      Text(item.rawValue)
+                                          .font(.system(size: 13, weight: .semibold))
+                                      Text(item.subtitle)
+                                          .font(.system(size: 11))
+                                          .foregroundColor(.secondary)
+                                  }
+                                  Spacer()
+                                  if store.activeTheme == item {
+                                      Image(systemName: "checkmark.circle.fill")
+                                          .foregroundColor(.green)
+                                  }
+                              }
+                              .padding(10)
+                              .background(Color.secondary.opacity(0.1))
+                              .clipShape(RoundedRectangle(cornerRadius: 8))
+                          }
+                          .buttonStyle(.plain)
+                      }
+
+                      Divider()
+
+                      Picker("Interface & Editorial Font Family", selection: $store.typography.fontFamily) {
+                          ForEach(AppFontFamily.allCases) { f in
+                              Text(f.rawValue).tag(f)
+                          }
+                      }
+
+                      VStack(alignment: .leading, spacing: 4) {
+                          Text(String(format: "Optical Font Size: %.1f pt", store.typography.baseFontSize))
+                              .font(.system(size: 12, design: .monospaced))
+                              .monospacedDigit()
+                          Slider(value: $store.typography.baseFontSize, in: 12.0...19.0, step: 0.5)
+                      }
+
+                      VStack(alignment: .leading, spacing: 4) {
+                          Text(String(format: "Real-Time Font Weight / Boldness Slider: %.1f", store.typography.fontWeightIndex))
+                              .font(.system(size: 12, design: .monospaced))
+                              .monospacedDigit()
+                          Slider(value: $store.typography.fontWeightIndex, in: -1.0...2.0, step: 0.25)
+                      }
+
+                      VStack(alignment: .leading, spacing: 4) {
+                          Text(String(format: "Comfortable Editorial Column Width: %.0f px", store.typography.comfortableReadingWidth))
+                              .font(.system(size: 12, design: .monospaced))
+                              .monospacedDigit()
+                          Slider(value: $store.typography.comfortableReadingWidth, in: 620...1080, step: 20)
+                      }
+                  }
+              }
+
+              private var modelsAndExternalDriveSection: some View {
+                  VStack(alignment: .leading, spacing: 14) {
+                      Text("Resumable Model Registry & External SSD Persistence")
+                          .font(.system(size: 16, weight: .bold))
+
+                      HStack {
+                          TextField("Pull model tag or HuggingFace GGUF URL...", text: $pullModelInput)
+                              .textFieldStyle(.roundedBorder)
+                          Button("Pull Model") {
+                              store.startModelDownload(reference: pullModelInput)
+                          }
+                          .buttonStyle(.borderedProminent)
+                      }
+
+                      ForEach(store.downloadTasks) { task in
+                          VStack(alignment: .leading, spacing: 4) {
+                              HStack {
+                                  Text(task.modelReference).font(.system(size: 12, weight: .bold))
+                                  Spacer()
+                                  Text(String(format: "%.1f MB/s · ETA %@", task.speedMBps, task.etaFormatted))
+                                      .font(.system(size: 11, design: .monospaced))
+                                      .monospacedDigit()
+                              }
+                              ProgressView(value: task.progressFraction)
+                          }
+                          .padding(8)
+                          .background(Color.secondary.opacity(0.1))
+                          .clipShape(RoundedRectangle(cornerRadius: 8))
+                      }
+
+                      Divider()
+
+                      HStack {
+                          VStack(alignment: .leading) {
+                              Text("External SSD Volume (Security-Scoped Bookmark)")
+                                  .font(.system(size: 13, weight: .semibold))
+                              Text(store.driveManager.externalVolumePath.isEmpty ? "Default (~/.ollama/models)" : store.driveManager.externalVolumePath)
+                                  .font(.system(size: 11, design: .monospaced))
+                                  .foregroundColor(.secondary)
+                          }
+                          Spacer()
+                          Button("Select External Drive...") {
+                              store.driveManager.selectExternalDriveDirectory()
+                          }
+                      }
+
+                      Divider()
+
+                      Text("Discovered Raw GGUF Files (1-Click Registration)")
+                          .font(.system(size: 13, weight: .semibold))
+
+                      ForEach(store.driveManager.discoveredGGUFFiles) { gguf in
+                          HStack {
+                              VStack(alignment: .leading) {
+                                  Text(gguf.fileName).font(.system(size: 12, weight: .medium))
+                                  Text("\(gguf.formattedSize) · \(gguf.quantizationGuess) · \(gguf.architectureGuess)")
+                                      .font(.system(size: 10.5, design: .monospaced))
+                                      .foregroundColor(.secondary)
+                              }
+                              Spacer()
+                              Button(gguf.isRegistered ? "Registered" : "Package & Register") {
+                                  store.registerLooseGGUF(gguf)
+                              }
+                              .disabled(gguf.isRegistered)
+                          }
+                          .padding(8)
+                          .background(Color.secondary.opacity(0.08))
+                          .clipShape(RoundedRectangle(cornerRadius: 7))
+                      }
+                  }
+              }
+
+              private var generationDefaultsSection: some View {
+                  VStack(alignment: .leading, spacing: 12) {
+                      Text("Default Generation Presets")
+                          .font(.system(size: 16, weight: .bold))
+                      ForEach(store.presets) { preset in
+                          VStack(alignment: .leading, spacing: 4) {
+                              Label(preset.name, systemImage: preset.icon)
+                                  .font(.system(size: 13, weight: .semibold))
+                              Text(preset.description)
+                                  .font(.system(size: 11.5))
+                                  .foregroundColor(.secondary)
+                          }
+                          .padding(10)
+                          .frame(maxWidth: .infinity, alignment: .leading)
+                          .background(Color.secondary.opacity(0.1))
+                          .clipShape(RoundedRectangle(cornerRadius: 8))
+                      }
+                  }
+              }
+
+              private var keyboardShortcutsReferenceSection: some View {
+                  VStack(alignment: .leading, spacing: 10) {
+                      Text("Keyboard-First UX Shortcut Reference")
+                          .font(.system(size: 16, weight: .bold))
+                      shortcutRow("New Conversation", "⌘N")
+                      shortcutRow("Open Command Palette & Search", "⌘K")
+                      shortcutRow("Send Prompt", "⌘Return")
+                      shortcutRow("Stop Active Generation", "⌘.")
+                      shortcutRow("Toggle Left Sidebar", "⌘S")
+                      shortcutRow("Toggle Right Artifact / Arena Pane", "⌘\\")
+                      shortcutRow("Global Floating Quick-Ask Bar", "⌥Space")
+                      shortcutRow("Open Workstation Settings", "⌘,")
+                  }
+              }
+
+              private func shortcutRow(_ label: String, _ keys: String) -> some View {
+                  HStack {
+                      Text(label).font(.system(size: 12.5))
+                      Spacer()
+                      Text(keys)
+                          .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                          .padding(.horizontal, 8)
+                          .padding(.vertical, 3)
+                          .background(Color.secondary.opacity(0.15))
+                          .clipShape(RoundedRectangle(cornerRadius: 5))
+                  }
+                  .padding(.vertical, 3)
+              }
+
+              private var securityAndKeychainSection: some View {
+                  VStack(alignment: .leading, spacing: 12) {
+                      Text("Local-First Privacy & macOS Keychain Vault")
+                          .font(.system(size: 16, weight: .bold))
+                      Text("All conversations and rolling backups are stored locally inside Application Support. Optional remote hybrid provider keys are stored strictly in macOS Keychain (`SecItemAdd`), never in plaintext files.")
+                          .font(.system(size: 12))
+                          .foregroundColor(.secondary)
+
+                      SecureField("Optional Remote Provider API Key (Stored in Keychain)", text: $remoteProviderKey)
+                          .textFieldStyle(.roundedBorder)
+
+                      Button("Save Key to macOS Keychain") {
+                          let ok = KeychainVault.saveSecret(remoteProviderKey, forKey: "hybrid_api_key")
+                          keychainStatusMessage = ok ? "Encrypted in macOS Keychain successfully." : "Keychain write failed."
+                      }
+                      if !keychainStatusMessage.isEmpty {
+                          Text(keychainStatusMessage)
+                              .font(.system(size: 11.5))
+                              .foregroundColor(.green)
+                      }
+                  }
+              }
+
+              private var aboutWorkstationSection: some View {
+                  VStack(alignment: .leading, spacing: 10) {
+                      Text("Aether Studio for macOS (Apple Silicon Native)")
+                          .font(.system(size: 17, weight: .bold))
+                      Text("Version 2.4.0 (Build 240) · Pure Swift 6, SwiftUI & AppKit Liquid Glass")
+                          .font(.system(size: 12, design: .monospaced))
+                          .foregroundColor(.secondary)
+                      Text("Architected for 100% visual parity with local LLM runtimes, zero terminal dependency, stateful reasoning stream parsing, non-destructive branching ledgers, and real-time Apple Silicon Unified Memory telemetry.")
+                          .font(.system(size: 12.5))
+                  }
+              }
+          }
+          EOF
+
+      - name: Generate Main 3-Pane Workstation Window, Quick-Ask Floating Panel & App Entrypoint (AetherStudioApp.swift)
+        run: |
+          cat << 'EOF' > AetherStudio/Sources/AetherStudio/AetherStudioApp.swift
+          import SwiftUI
+          import AppKit
+
+          @main
+          public struct AetherStudioApp: App {
+              @StateObject private var store = WorkstationStore()
+
+              public init() {
+                  CustomFontRegistrar.registerBundledFonts()
+              }
+
+              public var body: some Scene {
+                  WindowGroup("Aether Studio") {
+                      ThreeZoneWorkstationRootView(store: store)
+                          .frame(minWidth: 980, minHeight: 640)
+                          .preferredColorScheme(store.activeTheme.isDark ? .dark : .light)
+                  }
+                  .windowStyle(.hiddenTitleBar)
+                  .windowToolbarStyle(.unified(showsTitle: false))
+                  .commands {
+                      CommandGroup(replacing: .newItem) {
+                          Button("New Conversation") {
+                              store.createNewSession()
+                          }
+                          .keyboardShortcut("n", modifiers: [.command])
+                      }
+                      CommandMenu("Workstation") {
+                          Button("Command Palette...") {
+                              store.isCommandPalettePresented.toggle()
+                          }
+                          .keyboardShortcut("k", modifiers: [.command])
+
+                          Button("Toggle Left Sidebar") {
+                              withAnimation(.easeOut(duration: 0.18)) {
+                                  store.isSidebarVisible.toggle()
+                              }
+                          }
+                          .keyboardShortcut("s", modifiers: [.command])
+
+                          Button("Toggle Right Artifact & Arena Pane") {
+                              withAnimation(.easeOut(duration: 0.18)) {
+                                  store.isRightUtilityPaneOpen.toggle()
+                              }
+                          }
+                          .keyboardShortcut("\\", modifiers: [.command])
+
+                          Button("Toggle Floating Quick-Ask Bar") {
+                              store.isQuickAskBarVisible.toggle()
+                          }
+                          .keyboardShortcut(.space, modifiers: [.option])
+
+                          Divider()
+
+                          Button("Stop Active Generation") {
+                              store.stopActiveGeneration()
+                          }
+                          .keyboardShortcut(".", modifiers: [.command])
+                      }
+                  }
+
+                  Settings {
+                      WorkstationSettingsModal(store: store)
+                  }
+              }
+          }
+
+          // MARK: - Three-Zone Unified Titlebar Workstation Root View
+          public struct ThreeZoneWorkstationRootView: View {
+              @ObservedObject public var store: WorkstationStore
+
+              private var theme: AppThemeID { store.activeTheme }
+
+              public var body: some View {
+                  ZStack {
+                      HStack(spacing: 0) {
+                          // Zone 1: Persistent Liquid Glass Sidebar
+                          if store.isSidebarVisible {
+                              SidebarNavigationView(store: store)
+                                  .frame(width: 265)
+                                  .transition(.move(edge: .leading))
+                          }
+
+                          // Zone 2: Primary Editorial Conversation & Progressive Composer
+                          EditorialConversationView(store: store)
+                              .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                          // Zone 3: Optional Right Utility / Artifact / Arena Pane
+                          if store.isRightUtilityPaneOpen {
+                              RightUtilityArtifactPane(store: store)
+                                  .transition(.move(edge: .trailing))
+                          }
+                      }
+
+                      // Command Palette Overlay (Cmd+K)
+                      if store.isCommandPalettePresented {
+                          CommandPaletteOverlay(store: store)
+                      }
+
+                      // Floating Quick-Ask Capsule Overlay (Option+Space)
+                      if store.isQuickAskBarVisible {
+                          QuickAskFloatingCapsule(store: store)
+                      }
+                  }
+                  .toolbar {
+                      ToolbarItemGroup(placement: .navigation) {
+                          Button {
+                              withAnimation(.easeOut(duration: 0.18)) {
+                                  store.isSidebarVisible.toggle()
+                              }
+                          } label: {
+                              Image(systemName: "sidebar.left")
+                          }
+                          .help("Toggle Sidebar (Cmd+S)")
+                      }
+
+                      ToolbarItemGroup(placement: .principal) {
+                          HStack(spacing: 8) {
+                              Text(store.activeSession?.title ?? "Aether Studio")
+                                  .font(.system(size: 13, weight: .semibold))
+                                  .foregroundColor(theme.primaryText)
+
+                              Text(store.activeModelDescriptor.quantizationLevel)
+                                  .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                                  .padding(.horizontal, 6)
+                                  .padding(.vertical, 2)
+                                  .background(theme.accentColor.opacity(0.18))
+                                  .clipShape(Capsule())
+                          }
+                      }
+
+                      ToolbarItemGroup(placement: .primaryAction) {
+                          // Quick Font Weight / Density Optical Slider in Toolbar
+                          Menu {
+                              ForEach(AppThemeID.allCases) { item in
+                                  Button(item.rawValue) {
+                                      store.activeTheme = item
+                                  }
+                              }
+                          } label: {
+                              Image(systemName: "circle.lefthalf.filled")
+                          }
+                          .help("Switch Aesthetic Theme")
+
+                          Button {
+                              withAnimation(.easeOut(duration: 0.18)) {
+                                  store.isRightUtilityPaneOpen.toggle()
+                              }
+                          } label: {
+                              Image(systemName: "sidebar.right")
+                          }
+                          .help("Toggle Right Artifact & Arena Pane (Cmd+\\)")
+                      }
+                  }
+                  .sheet(isPresented: $store.isSettingsModalPresented) {
+                      WorkstationSettingsModal(store: store)
+                  }
+                  .alert(item: $store.pendingMemoryConflictModel) { targetModel in
+                      Alert(
+                          title: Text("Proactive Unified Memory Conflict Guard"),
+                          message: Text("Loading \(targetModel.displayName) (\(targetModel.formattedSize)) alongside currently resident weights exceeds safe Apple Silicon Metal headroom. Unload existing model and map \(targetModel.displayName) into Unified RAM?"),
+                          primaryButton: .default(Text("Unload Existing & Load Model")) {
+                              store.performModelLoadAndSelect(targetModel, unloadExisting: true)
+                          },
+                          secondaryButton: .cancel()
+                      )
+                  }
+              }
+          }
+
+          // MARK: - Floating Quick-Ask Bar (Option+Space)
+          public struct QuickAskFloatingCapsule: View {
+              @ObservedObject public var store: WorkstationStore
+              @State private var quickPrompt: String = ""
+
+              private var theme: AppThemeID { store.activeTheme }
+
+              public var body: some View {
+                  VStack {
+                      HStack(spacing: 10) {
+                          Image(systemName: "bolt.circle.fill")
+                              .font(.system(size: 18))
+                              .foregroundColor(theme.accentColor)
+
+                          TextField("Quick Ask (\(store.activeModelDescriptor.displayName))...", text: $quickPrompt)
+                              .textFieldStyle(.plain)
+                              .font(.system(size: 14, weight: .medium))
+                              .foregroundColor(theme.primaryText)
+                              .onSubmit {
+                                  let text = quickPrompt
+                                  quickPrompt = ""
+                                  store.isQuickAskBarVisible = false
+                                  store.sendActivePrompt(customPrompt: text)
+                              }
+
+                          Button {
+                              store.isQuickAskBarVisible = false
+                          } label: {
+                              Image(systemName: "xmark.circle.fill")
+                                  .foregroundColor(theme.secondaryText)
+                          }
+                          .buttonStyle(.plain)
+                      }
+                      .padding(.horizontal, 16)
+                      .padding(.vertical, 12)
+                      .frame(width: 540)
+                      .background(theme.elevatedCard)
+                      .clipShape(Capsule())
+                      .overlay(
+                          Capsule().stroke(theme.accentColor.opacity(0.5), lineWidth: 1)
+                      )
+                      .shadow(color: .black.opacity(0.35), radius: 20, y: 8)
+                      .padding(.top, 60)
+
+                      Spacer()
+                  }
+              }
+          }
+          EOF
+
+      - name: Compile Release Universal Binary with Swift 6 on macOS 15
+        working-directory: AetherStudio
+        run: |
+          swift build -c release --arch arm64
+
+      - name: Assemble macOS Application Bundle (.app), Info.plist, Fonts & Ad-Hoc Code Sign
+        run: |
+          APP_BUNDLE="build/dmg_staging/${DISPLAY_NAME}.app"
+          mkdir -p "${APP_BUNDLE}/Contents/MacOS"
+          mkdir -p "${APP_BUNDLE}/Contents/Resources/Fonts"
+
+          cp "AetherStudio/.build/arm64-apple-macosx/release/${APP_NAME}" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+          chmod +x "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+
+          cp -R AetherStudio/Sources/AetherStudio/Resources/Fonts/* "${APP_BUNDLE}/Contents/Resources/Fonts/" 2>/dev/null || true
+
+          cat << EOF > "${APP_BUNDLE}/Contents/Info.plist"
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "[http://www.apple.com/DTDs/PropertyList-1.0.dtd](http://www.apple.com/DTDs/PropertyList-1.0.dtd)">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key>
+              <string>en</string>
+              <key>CFBundleExecutable</key>
+              <string>${APP_NAME}</string>
+              <key>CFBundleIdentifier</key>
+              <string>${BUNDLE_ID}</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>${DISPLAY_NAME}</string>
+              <key>CFBundleDisplayName</key>
+              <string>${DISPLAY_NAME}</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${VERSION}</string>
+              <key>CFBundleVersion</key>
+              <string>${BUILD_NUMBER}</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>14.0</string>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>NSSupportsAutomaticGraphicsSwitching</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+
+          codesign --force --deep --sign - "${APP_BUNDLE}"
+
+      - name: Package Compressed macOS Disk Image (.dmg) with Applications Symlink
+        run: |
+          ln -s /Applications "build/dmg_staging/Applications"
+          DMG_PATH="build/${APP_NAME}-${VERSION}-macOS-arm64.dmg"
+          hdiutil create \
+            -volname "${DISPLAY_NAME}" \
+            -srcfolder "build/dmg_staging" \
+            -ov \
+            -format UDZO \
+            "${DMG_PATH}"
+          ls -lh "${DMG_PATH}"
+
+      - name: Upload Compiled DMG Installer as GitHub Actions Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AetherStudio-macOS-AppleSilicon-DMG
+          path: build/*.dmg
+          retention-days: 30
