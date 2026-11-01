@@ -2306,8 +2306,6 @@ jobs:
           import Foundation
           import AppKit
 
-          // MARK: - Safe Process Supervisor (Area 2 Points 5 & 6: Tracks Own Process, Waits for Readiness, Applies External Drive Path)
-
           @MainActor
           public final class ProcessManager: ObservableObject {
               @Published public private(set) var isManagedProcessRunning: Bool = false
@@ -2341,7 +2339,8 @@ jobs:
               }
 
               public func startManagedServer(config: ServerConfig) {
-                  _ = config.restoreSecurityScopedAccessIfNeeded()
+                  var resolvedConfig = config
+                  _ = resolvedConfig.restoreSecurityScopedAccessIfNeeded()
 
                   guard let binary = detectedBinaryPath ?? Self.locateOllamaBinary() else {
                       appendSystemLog("Could not find 'ollama' executable in /Applications/Ollama.app or /opt/homebrew/bin.", isWarn: true)
@@ -2356,7 +2355,7 @@ jobs:
                   proc.arguments = ["serve"]
 
                   var env = ProcessInfo.processInfo.environment
-                  for (k, v) in config.toEnvironmentVariables() { env[k] = v }
+                  for (k, v) in resolvedConfig.toEnvironmentVariables() { env[k] = v }
                   proc.environment = env
 
                   let pipe = Pipe()
@@ -2386,14 +2385,13 @@ jobs:
                       try proc.run()
                       self.serverProcess = proc
                       self.isManagedProcessRunning = true
-                      appendSystemLog("Started managed 'ollama serve' (PID \(proc.processIdentifier)) with OLLAMA_MODELS=\(config.modelsDirectoryPath)")
+                      appendSystemLog("Started managed 'ollama serve' (PID \(proc.processIdentifier)) with OLLAMA_MODELS=\(resolvedConfig.modelsDirectoryPath)")
                   } catch {
                       self.isManagedProcessRunning = false
                       appendSystemLog("Failed to launch 'ollama serve': \(error.localizedDescription)", isWarn: true)
                   }
               }
 
-              /// Stops ONLY the process started by Ollama Studio by default; only stops external daemon when explicitly switching storage drives
               public func stopServer(includeExternalDaemonForDriveSwitch: Bool = false) {
                   if let p = serverProcess, p.isRunning {
                       p.terminate()
@@ -2402,7 +2400,6 @@ jobs:
                       appendSystemLog("Stopped managed 'ollama serve' process.")
                   }
                   if includeExternalDaemonForDriveSwitch {
-                      // Sync OLLAMA_MODELS to launchctl only when user explicitly changes storage folder
                       let killProc = Process()
                       killProc.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
                       killProc.arguments = ["ollama"]
@@ -2412,8 +2409,10 @@ jobs:
                   }
               }
 
-              public func restartServerAndAwaitReady(with config: inout ServerConfig, client: OllamaClient) async {
-                  for (k, v) in config.toEnvironmentVariables() {
+              public func restartServerAndAwaitReady(with config: ServerConfig, client: OllamaClient) async {
+                  var resolvedConfig = config
+                  _ = resolvedConfig.restoreSecurityScopedAccessIfNeeded()
+                  for (k, v) in resolvedConfig.toEnvironmentVariables() {
                       let p = Process()
                       p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
                       p.arguments = ["setenv", k, v]
@@ -2421,10 +2420,9 @@ jobs:
                   }
                   stopServer(includeExternalDaemonForDriveSwitch: true)
                   try? await Task.sleep(nanoseconds: 450_000_000)
-                  startManagedServer(config: &config)
+                  startManagedServer(config: resolvedConfig)
 
-                  // Poll `/api/version` until the server actually answers on its port
-                  let baseURL = config.baseURLString
+                  let baseURL = resolvedConfig.baseURLString
                   for _ in 0..<16 {
                       if (try? await client.fetchVersion(baseURL: baseURL)) != nil {
                           appendSystemLog("Engine is online and responding at \(baseURL).")
@@ -2465,7 +2463,6 @@ jobs:
               }
           }
           EOF
-
           cat << 'EOF' > Sources/OllamaStudio/App/AppState.swift
           import SwiftUI
           import AppKit
