@@ -2647,7 +2647,7 @@ jobs:
                       }
                       await refreshEngineStatus()
                       if !isEngineOnline {
-                          processManager.startManagedServer(config: &serverConfig)
+                          processManager.startManagedServer(config: serverConfig)
                           try? await Task.sleep(nanoseconds: 900_000_000)
                           await refreshEngineStatus()
                       }
