@@ -3499,7 +3499,7 @@ jobs:
                           Button {
                               switch error.recoveryKind {
                               case .startEngine:
-                                  appState.processManager.startManagedServer(config: &appState.serverConfig)
+                                  appState.processManager.startManagedServer(config: appState.serverConfig)
                                   Task {
                                       try? await Task.sleep(nanoseconds: 1_000_000_000)
                                       await appState.refreshEngineStatus()
