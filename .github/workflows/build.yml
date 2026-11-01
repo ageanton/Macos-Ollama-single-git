@@ -2340,7 +2340,7 @@ jobs:
                   return candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) })
               }
 
-              public func startManagedServer(config: inout ServerConfig) {
+              public func startManagedServer(config: ServerConfig) {
                   _ = config.restoreSecurityScopedAccessIfNeeded()
 
                   guard let binary = detectedBinaryPath ?? Self.locateOllamaBinary() else {
