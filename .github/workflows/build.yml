@@ -4089,7 +4089,7 @@ jobs:
                                   .font(typo.mono(size: 10.5, weight: .medium))
                               Text(node.isThinkingComplete
                                    ? String(format: "(%.1fs)", node.metrics?.thinkingDurationSec ?? 1.1)
-                                   : String(format "(%.1fs…)", store.liveElapsedSeconds))
+                                   : String(format: "(%.1fs…)", store.liveElapsedSeconds))
                                   .font(typo.mono(size: 10.5))
                           }
                           .foregroundColor(tokens.mutedInk)
