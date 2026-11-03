@@ -555,9 +555,9 @@ jobs:
           public enum ThinkingModeOption: String, CaseIterable, Codable, Identifiable {
               case forceNoThink = "No Think"
               case forceThink = "Think"
-              case effortLow = "Think · Low"
-              case effortMedium = "Think · Med"
-              case effortHigh = "Think · High"
+              case effortLow = "Low"
+              case effortMedium = "Medium"
+              case effortHigh = "High"
 
               public var id: String { rawValue }
 
