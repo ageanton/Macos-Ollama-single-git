@@ -3181,9 +3181,6 @@ jobs:
                           HairlineDivider(axis: .vertical, tokens: tokens)
 
                           if softWrapEnabled {
-                          HairlineDivider(axis: .vertical, tokens: tokens)
-
-                          if softWrapEnabled {
                               VStack(alignment: .leading, spacing: 4) {
                                   ForEach(lines.indices, id: \.self) { idx in
                                       Text(lines[idx].isEmpty ? " " : lines[idx])
